@@ -1,8 +1,15 @@
-# Hulotte - StreamPU/AFF3CT Modular Framework
+```
+ ,_, 
+(o,o)
+{`"'}
+-"-"-
+```
+
+# Hulotte - Hybrid Unified Libraries for Opensource TesTing of Embedded systems
 
 Modular framework to build processing chains with StreamPU and AFF3CT.
 
-## 1) Install AFF3CT and StreamPU
+## 1) Installation
 
 ### Prerequisites
 - GCC/Clang with C++11 support

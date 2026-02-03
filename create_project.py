@@ -15,6 +15,21 @@ import subprocess
 from pathlib import Path
 
 
+def to_relative_path(path):
+    """Convert absolute path to relative path from current directory."""
+    try:
+        path_obj = Path(path).resolve()
+        cwd = Path.cwd().resolve()
+        try:
+            rel_path = path_obj.relative_to(cwd)
+            return f"./{rel_path}" if str(rel_path) != "." else "."
+        except ValueError:
+            # Path is not relative to cwd, return as-is
+            return str(path)
+    except:
+        return str(path)
+
+
 def print_ascii_art():
     """Print hulotte ASCII art if available."""
     try:
@@ -394,14 +409,14 @@ def create_project():
     
     hulotte_dir = str(Path.cwd().resolve())
     
-    streampu_dir = ask_streampu_root("/home/cleroux/PROJECTS/streampu")
+    streampu_dir = ask_streampu_root(None)
     
     use_aff3ct = ask_yes_no("Use AFF3CT?", default=False)
     
     if use_aff3ct:
-        aff3ct_dir = ask_aff3ct_root("/home/cleroux/PROJECTS/aff3ct")
+        aff3ct_dir = ask_aff3ct_root(None)
     else:
-        aff3ct_dir = "/home/cleroux/PROJECTS/aff3ct"
+        aff3ct_dir = None
     
     use_custom = ask_yes_no("Add custom module?", default=True)
     
@@ -413,7 +428,7 @@ def create_project():
         print(f"ERROR: Cannot create project directory: {e}")
         return False
     
-    print(f"\nCreating project in: {project_dir}\n")
+    print(f"\nCreating project in: {to_relative_path(project_dir)}\n")
     
     # Create source directory
     src_dir = project_dir / "src"
@@ -491,7 +506,7 @@ make -j$(nproc)
 if [ $? -eq 0 ]; then
     echo ""
     echo "Build successful!"
-    echo "Run: ./{project_name}"
+    echo "Run: ./build/{project_name}"
 else
     echo "Build failed"
     exit 1
@@ -546,13 +561,13 @@ make -j
     print("PROJECT CREATED SUCCESSFULLY!")
     print("="*60)
     print(f"\nProject: {project_name}")
-    print(f"Location: {project_dir}")
-    print(f"StreamPU: {streampu_dir}")
-    print(f"Hulotte: {hulotte_dir}")
+    print(f"Location: {to_relative_path(project_dir)}")
+    print(f"StreamPU: {to_relative_path(streampu_dir)}")
+    print(f"Hulotte: {to_relative_path(hulotte_dir)}")
     print(f"AFF3CT: {'Enabled' if use_aff3ct else 'Disabled'}")
     print(f"Custom module: {'Enabled' if use_custom else 'Disabled'}")
     print(f"\nNext steps:")
-    print(f"  1. cd {project_dir}")
+    print(f"  1. cd {to_relative_path(project_dir)}")
     print(f"  2. ./build.sh")
     print(f"  3. ./build/{project_name}")
     print()

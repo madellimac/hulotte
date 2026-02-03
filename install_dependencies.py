@@ -15,6 +15,21 @@ import subprocess
 from pathlib import Path
 
 
+def to_relative_path(path):
+    """Convert absolute path to relative path from current directory."""
+    try:
+        path_obj = Path(path).resolve()
+        cwd = Path.cwd().resolve()
+        try:
+            rel_path = path_obj.relative_to(cwd)
+            return f"./{rel_path}" if str(rel_path) != "." else "."
+        except ValueError:
+            # Path is not relative to cwd, return as-is
+            return str(path)
+    except:
+        return str(path)
+
+
 class Colors:
     """ANSI color codes for terminal output"""
     HEADER = '\033[95m'
@@ -229,6 +244,46 @@ def get_cpu_cores():
         return "4"
 
 
+def get_latest_tag(repo_url):
+    """Fetch latest tag from a git repository."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--tags", "--sort=-version:refname", repo_url],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.decode().split('\n')
+            for line in lines:
+                if line.strip():
+                    tag = line.split('refs/tags/')[-1].rstrip('^{}')
+                    if tag and not tag.endswith('^{}'):
+                        return tag
+    except Exception as e:
+        print_warning(f"Could not fetch tags: {e}")
+    return None
+
+
+def choose_version(repo_url, repo_name="repository"):
+    """Let user choose a version tag (default to latest)."""
+    latest_tag = get_latest_tag(repo_url)
+    
+    if latest_tag:
+        print_info(f"Latest {repo_name} version: {latest_tag}")
+        if ask_yes_no(f"Use {latest_tag}?", default=True):
+            return latest_tag
+        
+        custom_tag = input(f"Enter {repo_name} tag/branch (or empty for default): ").strip()
+        if custom_tag:
+            return custom_tag
+        return latest_tag
+    else:
+        print_warning(f"Could not determine latest {repo_name} version, using default")
+        custom_tag = input(f"Enter {repo_name} tag/branch (or empty for main/master): ").strip()
+        return custom_tag if custom_tag else None
+
+
 def check_git():
     """Check if git is installed"""
     print_info("Checking for git...")
@@ -283,11 +338,14 @@ def install_aff3ct(hulotte_root):
     """
     print_header("Installing AFF3CT with StreamPU")
     
+    aff3ct_url = "https://github.com/aff3ct/aff3ct.git"
+    aff3ct_tag = choose_version(aff3ct_url, "AFF3CT")
+    
     aff3ct_dir = hulotte_root / "aff3ct"
     
     # Check if AFF3CT already exists
     if aff3ct_dir.exists():
-        print_warning(f"AFF3CT directory already exists: {aff3ct_dir}")
+        print_warning(f"AFF3CT directory already exists: {to_relative_path(aff3ct_dir)}")
         if not ask_yes_no("Do you want to delete and reinstall?", default=False):
             print_info("Skipping AFF3CT installation")
             return None
@@ -296,10 +354,11 @@ def install_aff3ct(hulotte_root):
     
     # Clone AFF3CT
     print_info("Cloning AFF3CT repository...")
-    if not run_command(
-        "git clone --recursive https://github.com/aff3ct/aff3ct.git",
-        cwd=hulotte_root
-    ):
+    clone_cmd = f"git clone --recursive {aff3ct_url}"
+    if aff3ct_tag:
+        clone_cmd += f" --branch {aff3ct_tag}"
+    
+    if not run_command(clone_cmd, cwd=hulotte_root):
         print_error("Failed to clone AFF3CT")
         return None
     
@@ -377,11 +436,14 @@ def install_streampu(hulotte_root):
     """
     print_header("Installing StreamPU (standalone)")
     
+    streampu_url = "https://github.com/aff3ct/streampu.git"
+    streampu_tag = choose_version(streampu_url, "StreamPU")
+    
     streampu_dir = hulotte_root / "streampu"
     
     # Check if StreamPU already exists
     if streampu_dir.exists():
-        print_warning(f"StreamPU directory already exists: {streampu_dir}")
+        print_warning(f"StreamPU directory already exists: {to_relative_path(streampu_dir)}")
         if not ask_yes_no("Do you want to delete and reinstall?", default=False):
             print_info("Skipping StreamPU installation")
             return None
@@ -390,15 +452,15 @@ def install_streampu(hulotte_root):
     
     # Clone StreamPU
     print_info("Cloning StreamPU repository...")
-    if not run_command(
-        "git clone --recursive https://github.com/aff3ct/streampu.git",
-        cwd=hulotte_root
-    ):
+    clone_cmd = f"git clone --recursive {streampu_url}"
+    if streampu_tag:
+        clone_cmd += f" --branch {streampu_tag}"
+    
+    if not run_command(clone_cmd, cwd=hulotte_root):
         print_error("Failed to clone StreamPU")
         return None
     
     print_success("StreamPU cloned successfully")
-    
     # Create build directory
     build_dir = streampu_dir / "build"
     build_dir.mkdir(exist_ok=True)
@@ -482,7 +544,7 @@ def main():
     
     # Get Hulotte root (current directory)
     hulotte_root = Path.cwd().resolve()
-    print_info(f"Hulotte root: {hulotte_root}")
+    print_info(f"Hulotte root: {to_relative_path(hulotte_root)}")
     
     # Check prerequisites
     print_header("Checking Prerequisites")
