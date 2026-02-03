@@ -1,0 +1,2 @@
+add_executable(ex3_spu_aff3ct main_spu_aff3ct.cpp)
+target_link_libraries(ex3_spu_aff3ct hulotte_custom)
