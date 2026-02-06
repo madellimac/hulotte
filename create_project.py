@@ -228,7 +228,7 @@ def create_cmakelists(project_name, hulotte_path, streampu_path, aff3ct_path, us
     cmake = f"""cmake_minimum_required(VERSION 3.10)
 project({project_name} LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ============================================================
@@ -279,6 +279,7 @@ if(AFF3CT_LIBRARY)
     add_definitions(-DHULOTTE_USE_AFF3CT)
     add_definitions(-DAFF3CT_POLAR_BIT_PACKING)
     add_definitions(-DAFF3CT_MULTI_PREC)
+    add_definitions(-DSPU_STACKTRACE)
 else()
     message(WARNING "AFF3CT library not found! Falling back to standalone StreamPU.")
     
