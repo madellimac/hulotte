@@ -6,6 +6,7 @@ Supports StreamPU, optional AFF3CT, and optional custom modules.
 
 import os
 import sys
+import argparse
 import math
 import wave
 import struct
@@ -223,6 +224,7 @@ def ask_name(question, default=None):
 
 def create_cmakelists(project_name, hulotte_path, streampu_path, aff3ct_path, use_aff3ct, use_custom):
     """Generate CMakeLists.txt content."""
+    
     cmake = f"""cmake_minimum_required(VERSION 3.10)
 project({project_name} LANGUAGES CXX)
 
@@ -233,65 +235,95 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # DEPENDENCIES
 # ============================================================
 set(STREAMPU_ROOT "{streampu_path}" CACHE PATH "Path to StreamPU")
-set(AFF3CT_ROOT "{aff3ct_path}" CACHE PATH "Path to AFF3CT")
-set(HULOTTE_ROOT "{hulotte_path}" CACHE PATH "Path to Hulotte")
-
-# ============================================================
+"""
+    if use_aff3ct:
+        cmake += f'set(AFF3CT_ROOT "{aff3ct_path}" CACHE PATH "Path to AFF3CT")\n'
+    
+    cmake += f'set(HULOTTE_ROOT "{hulotte_path}" CACHE PATH "Path to Hulotte")\n\n'
+    
+    cmake += """# ============================================================
 # LOAD HULOTTE ENVIRONMENT
 # ============================================================
-# Configure StreamPU paths
-set(STREAMPU_INCLUDE_DIRS
-    ${{STREAMPU_ROOT}}/include
-    ${{STREAMPU_ROOT}}/src
-    ${{STREAMPU_ROOT}}/lib/rang/include
-    ${{STREAMPU_ROOT}}/lib/json/include
-)
-include_directories(${{STREAMPU_INCLUDE_DIRS}})
-
-# Configure AFF3CT paths (if enabled)
 """
-    
+
     if use_aff3ct:
-        cmake += f"""set(AFF3CT_INCLUDE_DIRS
-    ${{AFF3CT_ROOT}}/include
-    ${{AFF3CT_ROOT}}/src
-    ${{AFF3CT_ROOT}}/lib/MIPP/src
-    ${{AFF3CT_ROOT}}/lib/cli/src
-    ${{AFF3CT_ROOT}}/lib/date/include/date
+        cmake += """
+# Configure AFF3CT paths
+set(AFF3CT_INCLUDE_DIRS
+    ${AFF3CT_ROOT}/include
+    ${AFF3CT_ROOT}/src
+    ${AFF3CT_ROOT}/lib/MIPP/src
+    ${AFF3CT_ROOT}/lib/cli/src
+    ${AFF3CT_ROOT}/lib/date/include/date
 )
-include_directories(${{AFF3CT_INCLUDE_DIRS}})
+include_directories(${AFF3CT_INCLUDE_DIRS})
 
 # Find AFF3CT library
-file(GLOB AFF3CT_LIBRARY "${{AFF3CT_ROOT}}/build/lib/libaff3ct*.a")
+file(GLOB AFF3CT_LIBRARY "${AFF3CT_ROOT}/build/lib/libaff3ct*.a")
 
-"""
+if(AFF3CT_LIBRARY)
+    message(STATUS "Found AFF3CT: ${AFF3CT_LIBRARY}")
     
-    cmake += f"""
-# Find StreamPU library directly
-if(EXISTS "${{STREAMPU_ROOT}}/build/lib/libstreampu.a")
-    set(STREAMPU_LIBRARY "${{STREAMPU_ROOT}}/build/lib/libstreampu.a")
-else()
-    message(FATAL_ERROR "libstreampu.a not found at ${{STREAMPU_ROOT}}/build/lib/libstreampu.a")
-endif()
-
-# Find cpptrace (optional, for better error messages)
-find_library(CPPTRACE_LIBRARY NAMES cpptrace libcpptrace.a
-    PATHS ${{STREAMPU_ROOT}}/build/lib/cpptrace/lib)
-
-# Combine all libraries
-set(HULOTTE_LIBS ${{STREAMPU_LIBRARY}})
-"""
+    # When using AFF3CT, use the StreamPU headers/symbols bundled in AFF3CT
+    # to avoid Diamond Dependency / ABI mismatches.
+    set(STREAMPU_INCLUDE_DIRS
+        ${AFF3CT_ROOT}/lib/streampu/include
+        ${AFF3CT_ROOT}/lib/streampu/lib/rang/include
+        ${AFF3CT_ROOT}/lib/streampu/lib/json/include
+    )
+    include_directories(${STREAMPU_INCLUDE_DIRS})
     
-    if use_aff3ct:
-        cmake += """if(AFF3CT_LIBRARY)
-    list(APPEND HULOTTE_LIBS ${AFF3CT_LIBRARY})
+    # Link ONLY AFF3CT (it contains StreamPU symbols)
+    set(HULOTTE_LIBS ${AFF3CT_LIBRARY})
+    
     add_definitions(-DHULOTTE_USE_AFF3CT)
     add_definitions(-DAFF3CT_POLAR_BIT_PACKING)
     add_definitions(-DAFF3CT_MULTI_PREC)
+else()
+    message(WARNING "AFF3CT library not found! Falling back to standalone StreamPU.")
+    
+    # Standalone StreamPU
+    set(STREAMPU_INCLUDE_DIRS
+        ${STREAMPU_ROOT}/include
+        ${STREAMPU_ROOT}/src
+        ${STREAMPU_ROOT}/lib/rang/include
+        ${STREAMPU_ROOT}/lib/json/include
+    )
+    include_directories(${STREAMPU_INCLUDE_DIRS})
+    
+    if(EXISTS "${STREAMPU_ROOT}/build/lib/libstreampu.a")
+        set(HULOTTE_LIBS "${STREAMPU_ROOT}/build/lib/libstreampu.a")
+    else()
+        message(FATAL_ERROR "libstreampu.a not found at ${STREAMPU_ROOT}/build/lib/libstreampu.a")
+    endif()
 endif()
 """
-    
-    cmake += """if(CPPTRACE_LIBRARY)
+    else:
+        # Standard StreamPU Only
+        cmake += """
+# Configure StreamPU paths
+set(STREAMPU_INCLUDE_DIRS
+    ${STREAMPU_ROOT}/include
+    ${STREAMPU_ROOT}/src
+    ${STREAMPU_ROOT}/lib/rang/include
+    ${STREAMPU_ROOT}/lib/json/include
+)
+include_directories(${STREAMPU_INCLUDE_DIRS})
+
+# Find StreamPU library
+if(EXISTS "${STREAMPU_ROOT}/build/lib/libstreampu.a")
+    set(HULOTTE_LIBS "${STREAMPU_ROOT}/build/lib/libstreampu.a")
+else()
+    message(FATAL_ERROR "libstreampu.a not found at ${STREAMPU_ROOT}/build/lib/libstreampu.a")
+endif()
+"""
+
+    cmake += """
+# Find cpptrace (optional, for better error messages)
+find_library(CPPTRACE_LIBRARY NAMES cpptrace libcpptrace.a
+    PATHS ${STREAMPU_ROOT}/build/lib/cpptrace/lib)
+
+if(CPPTRACE_LIBRARY)
     list(APPEND HULOTTE_LIBS ${CPPTRACE_LIBRARY})
     include_directories(${STREAMPU_ROOT}/lib/cpptrace/include)
 endif()
@@ -302,7 +334,6 @@ add_definitions(-DHULOTTE_USE_STREAMPU)
 # PROJECT SOURCES
 # ============================================================
 """
-    
     if use_custom:
         cmake += f"""# Custom module
 add_library({project_name}_custom STATIC
@@ -325,100 +356,281 @@ target_link_libraries({project_name} ${{HULOTTE_LIBS}})
 
 def create_main_cpp(use_custom, use_aff3ct):
     """Generate main.cpp content."""
-    includes = "#include <iostream>\n#include <streampu.hpp>\n"
-    if use_custom:
-        includes += "#include \"custom/MyModule.hpp\"\n"
     
-    main = f"""{includes}
+    includes = """#include <iostream>
+#include <vector>
+#include <fstream>
+#include <streampu.hpp>
+"""
+    if use_aff3ct:
+        includes += """#include <aff3ct.hpp>
+"""
+    if use_custom:
+        includes += '#include "custom/MyModule.hpp"\n'
+
+    body = ""
+    
+    if use_aff3ct:
+        # AFF3CT Chain: RS Encoder -> RS Decoder -> Finalizer
+        modules = """
+    // 1. Modules creation
+    
+    // RS(255, 239) => t=8, m=8. Bits 2040 -> 1912.
+    // NOTE: This uses aff3ct B_32 (32-bit integer) template instantiation.
+    const int N_rs = 255;  // Symbols
+    const int K_rs = 239;  // Symbols
+    const int m = 8;       // Bits per symbol
+    const int t = (N_rs - K_rs) / 2; // Correction power
+    const int N = N_rs * m; // Total bits
+    const int K = K_rs * m; // Info bits
+
+    module::Source_random<> source(K);
+    module::Finalizer    <> finalizer(K);
+    
+    // Create RS Polynomial Generator (needed for RS construction)
+    aff3ct::tools::RS_polynomial_generator poly(N_rs, t);
+    
+    // Create Encoder and Decoder
+    aff3ct::module::Encoder_RS<>     encoder(K_rs, N_rs, poly);
+    aff3ct::module::Decoder_RS_std<> decoder(K_rs, N_rs, poly);    
+"""
+        if use_custom:
+            modules += """    module::MyModule         my_module(K);
+"""
+
+        sockets_bind = """
+    // 2. Sockets binding
+    using namespace aff3ct::module;
+    using namespace aff3ct::tools;
+"""
+        if use_custom:
+            sockets_bind += """    // Init -> Custom -> Encoder -> Decoder -> Finalizer
+            
+    // Warning: Socket binding uses explicit cast to (int) for C++11 enum classes
+    source   [src::tsk::generate][(int)src::sck::generate::out_data] = my_module ["process::in"];
+    my_module["process::out"]  = encoder   [enc::tsk::encode][(int)enc::sck::encode::U_K];
+    
+    encoder  [enc::tsk::encode][(int)enc::sck::encode::X_N] = 
+          decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
+          
+    decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K] = finalizer["finalize::in"];
+"""
+        else:
+            sockets_bind += """    // Init -> Encoder -> Decoder -> Finalizer
+            
+    source   [src::tsk::generate][(int)src::sck::generate::out_data] = encoder   [enc::tsk::encode][(int)enc::sck::encode::U_K];
+    
+    encoder[enc::tsk::encode][(int)enc::sck::encode::X_N] = 
+          decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
+          
+    decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K] = finalizer["finalize::in"];
+"""
+    
+    # Standard StreamPU Chain: Init -> Incr -> Finalizer
+    else:
+        modules = """
+    // 1. Modules creation
+    const int n_elmts = 16;
+    module::Initializer<int> initializer(n_elmts);
+    module::Incrementer<int> incrementer(n_elmts);
+    module::Finalizer  <int> finalizer(n_elmts);
+"""
+        if use_custom:
+            modules += """    module::MyModule         my_module(n_elmts);
+"""
+    
+        sockets_bind = """
+    // 2. Sockets binding
+"""
+        if use_custom:
+            sockets_bind += """    initializer["initialize::out"] = incrementer["increment::in"];
+    incrementer["increment::out"] = my_module  ["process::in"];
+    my_module  ["process::out"]   = finalizer  ["finalize::in"];
+"""
+        else:
+            sockets_bind += """    initializer["initialize::out"] = incrementer["increment::in"];
+    incrementer["increment::out"] = finalizer  ["finalize::in"];
+"""
+
+    first_task_code = 'first_tasks.push_back(&source("generate"));' if use_aff3ct else 'first_tasks.push_back(&initializer("initialize"));'
+
+    main_content = f"""{includes}
 using namespace spu;
+using namespace spu::module;
 
 int main(int argc, char** argv)
 {{
-    std::cout << "Hulotte project started!\\n";
-"""
+    std::cout << "Starting Hulotte project..." << std::endl;
+
+{modules}
+{sockets_bind}
     
-    if use_aff3ct:
-        main += """    
-    // AFF3CT is available (include it as needed in your code)
-    // #include <aff3ct.hpp>
-"""
+    // 3. Sequence creation
+    std::vector<runtime::Task*> first_tasks;
+    {first_task_code}
+
+    runtime::Sequence sequence(first_tasks);
+
+    // Configuration
+    for (auto& type : sequence.get_tasks_per_types())
+        for (auto& t : type)
+        {{
+            t->set_stats(true);
+            t->set_debug(false);
+        }}
+
+    // 4. Execution
+    std::cout << "Processing..." << std::endl;
     
-    if use_custom:
-        main += """    
-    // Custom module example
-    MyModule my_module;
-    my_module.run();
-"""
-    
-    main += """    
+    // Export dot file for visualization
+    std::ofstream file("graph.dot");
+    sequence.export_dot(file);
+
+    // Run the sequence
+    for (auto i = 0; i < 3; i++)
+        sequence.exec_seq(); // Run 1 frame at a time
+
+    // 5. Stats
+    std::cout << "\\nEnd of execution." << std::endl;
+    tools::Stats::show(sequence.get_tasks_per_types(), true, false);
+
     return 0;
-}
+}}
 """
-    return main
+    return main_content
 
 
 def create_custom_module():
-    """Generate custom module files."""
+    """Generate custom module files (StreamPU Stateful module)."""
     header = """#pragma once
-
-#include <cstdint>
 #include <streampu.hpp>
 
-class MyModule
+namespace spu {
+namespace module {
+
+class MyModule : public Stateful
 {
-public:
-    MyModule();
-    ~MyModule() = default;
-    
-    void run();
-    
 private:
-    // Add your custom logic here
+    int n_elmts;
+
+public:
+    MyModule(const int n_elmts);
+    virtual ~MyModule() = default;
+    
+    virtual MyModule* clone() const override;
+
+protected:
+    void _process(const int* in, int* out, const int frame_id);
 };
+
+}
+}
 """
     
     implementation = """#include "MyModule.hpp"
+#include <algorithm>
 #include <iostream>
 
-MyModule::MyModule()
+using namespace spu;
+using namespace spu::module;
+
+MyModule::MyModule(const int n_elmts)
+: Stateful(), n_elmts(n_elmts)
 {
-    std::cout << "MyModule initialized\\n";
+    const std::string name = "MyModule";
+    this->set_name(name);
+    this->set_short_name(name);
+
+    auto &t = this->create_task("process");
+    auto p_in  = this->create_socket_in <int>(t, "in",  n_elmts);
+    auto p_out = this->create_socket_out<int>(t, "out", n_elmts);
+
+    this->create_codelet(t, [p_in, p_out](Module &m, runtime::Task &t, const size_t frame_id) -> int
+    {
+        auto &mod = static_cast<MyModule&>(m);
+        mod._process(static_cast<int*>(t[p_in].get_dataptr()),
+                     static_cast<int*>(t[p_out].get_dataptr()),
+                     frame_id);
+        return runtime::status_t::SUCCESS;
+    });
 }
 
-void MyModule::run()
+MyModule* MyModule::clone() const
 {
-    std::cout << "MyModule::run() called\\n";
-    // Implement your logic here
+    auto m = new MyModule(*this);
+    m->deep_copy(*this);
+    return m;
+}
+
+void MyModule::_process(const int* in, int* out, const int frame_id)
+{
+    // Minimal example: copy input to output and print trace
+    // std::cout << "MyModule processing frame " << frame_id << std::endl;
+    std::copy(in, in + this->n_elmts, out);
 }
 """
     
     return header, implementation
 
 
-def create_project():
+def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=None, streampu_root=None, aff3ct_root=None):
     """Main project generation function."""
     print_ascii_art()
-    play_owl_hoot()
+    if not quiet:
+        play_owl_hoot()
     print("\n" + "="*60)
     print("HULOTTE PROJECT GENERATOR")
     print("="*60 + "\n")
     
     # Gather user input
-    project_name = ask_name("Project name:", "my_spu_project")
-    output_dir = ask_path("Output directory:", ".", must_exist=True)
+    if project_name is None:
+        project_name = ask_name("Project name:", "my_spu_project")
+        
+    output_dir = "." # Default to current directory when running with args, could be improved
+    # To support interactive output dir when name is not provided:
+    if project_name is None: # Wait, logic above sets it. 
+        # Actually ask_name is blocking. If name provided, we skip.
+        # But we also have output_dir ask. 
+        # For full non-interactive, we should skip output_dir prompt if project_name is provided (assumption).
+        pass
+
+    if project_name and not quiet: # If interactive mode mostly
+         # If we are fully automated, we might want to skip this.
+         # But let's keep it simple: if name is passed, we assume non-interactive for basic stuff.
+         pass
     
+    # We'll just define logic: if arguments are passed, use them.
+    
+    # output_dir isn't in args yet, let's just stick to "." or ask if interactive.
+    # If project_name IS passed, we assume we want to be less interactive? 
+    # Or just asking for output dir is fine?
+    # Let's check original code. It asks for output_dir.
+    
+    if project_name is None:
+        output_dir = ask_path("Output directory:", ".", must_exist=True)
+    else:
+        output_dir = "."
+
     hulotte_dir = str(Path.cwd().resolve())
     
-    streampu_dir = ask_streampu_root(None)
+    if streampu_root:
+        streampu_dir = streampu_root
+    else:
+        streampu_dir = ask_streampu_root(None)
     
-    use_aff3ct = ask_yes_no("Use AFF3CT?", default=False)
+    if use_aff3ct is None:
+        use_aff3ct = ask_yes_no("Use AFF3CT?", default=False)
     
     if use_aff3ct:
-        aff3ct_dir = ask_aff3ct_root(None)
+        if aff3ct_root:
+            aff3ct_dir = aff3ct_root
+        else:
+            aff3ct_dir = ask_aff3ct_root(None)
     else:
         aff3ct_dir = None
     
-    use_custom = ask_yes_no("Add custom module?", default=True)
+    if use_custom is None:
+        use_custom = ask_yes_no("Add custom module?", default=True)
     
     # Create project directory
     project_dir = Path(output_dir) / project_name
@@ -501,7 +713,7 @@ cmake .. \\
     -DHULOTTE_ROOT="{hulotte_dir}" \\
     -DCMAKE_BUILD_TYPE=Release
 
-make -j$(nproc)
+make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 if [ $? -eq 0 ]; then
     echo ""
@@ -576,8 +788,28 @@ make -j
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate a new Hulotte project")
+    parser.add_argument("name", nargs="?", help="Project name")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Disable startup sound")
+    parser.add_argument("--aff3ct", action="store_true", help="Enable AFF3CT support")
+    parser.add_argument("--no-custom", action="store_true", help="Disable custom module")
+    parser.add_argument("--streampu-root", help="Path to StreamPU root")
+    parser.add_argument("--aff3ct-root", help="Path to AFF3CT root")
+    args = parser.parse_args()
+
+    # Determine values based on args and interactivity mode
+    use_custom = False if args.no_custom else (True if args.name else None)
+    use_aff3ct = True if args.aff3ct else (False if args.name else None)
+
     try:
-        success = create_project()
+        success = create_project(
+            quiet=args.quiet,
+            project_name=args.name,
+            use_aff3ct=use_aff3ct,
+            use_custom=use_custom,
+            streampu_root=args.streampu_root,
+            aff3ct_root=args.aff3ct_root
+        )
         sys.exit(0 if success else 1)
     except KeyboardInterrupt:
         print("\n\nCancelled by user.")

@@ -6,6 +6,7 @@ Interactive script to install AFF3CT and StreamPU dependencies
 
 import os
 import sys
+import argparse
 import math
 import wave
 import struct
@@ -536,10 +537,11 @@ def create_install_info(hulotte_root, aff3ct_info, streampu_info):
     print_success(f"Installation info saved to: {info_file}")
 
 
-def main():
+def main(quiet=False):
     """Main installation script"""
     print_ascii_art()
-    play_owl_hoot()
+    if not quiet:
+        play_owl_hoot()
     print_header("Hulotte Dependencies Installer")
     
     # Get Hulotte root (current directory)
@@ -614,8 +616,12 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Install Hulotte dependencies")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Disable startup sound")
+    args = parser.parse_args()
+
     try:
-        sys.exit(main())
+        sys.exit(main(quiet=args.quiet))
     except KeyboardInterrupt:
         print("\n\nInstallation cancelled by user")
         sys.exit(1)
