@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(Hulotte VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ============================================================
@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ============================================================
 option(HULOTTE_USE_STREAMPU   "Use StreamPU library (required)" ON)
 option(HULOTTE_USE_AFF3CT     "Use AFF3CT library" OFF)
+option(HULOTTE_USE_VERILATOR  "Use Verilator for Co-simulation" ON)
 option(HULOTTE_BUILD_EXAMPLES "Build example programs" ON)
 
 # ============================================================
@@ -120,10 +121,38 @@ if(HULOTTE_USE_AFF3CT)
 endif()
 
 # ============================================================
+# VERILATOR CONFIGURATION
+# ============================================================
+if(HULOTTE_USE_VERILATOR)
+    find_package(Verilator REQUIRED)
+    find_package(Threads REQUIRED)
+    find_package(Boost REQUIRED COMPONENTS system)
+    
+    # Common HW includes
+    set(HULOTTE_COMMON_HW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Common/streampu")
+    if (EXISTS ${HULOTTE_COMMON_HW_DIR})
+        include_directories(
+            ${HULOTTE_COMMON_HW_DIR}
+            ${HULOTTE_COMMON_HW_DIR}/hw
+            ${HULOTTE_COMMON_HW_DIR}/sw
+        )
+    else()
+        message(WARNING "Common HW directory not found at ${HULOTTE_COMMON_HW_DIR}")
+    endif()
+
+    add_definitions(-DVM_TRACE)
+    add_compile_options(-fPIC)
+endif()
+
+# ============================================================
 # EXEMPLES
 # ============================================================
 if(HULOTTE_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(HULOTTE_USE_VERILATOR)
+    add_subdirectory(hw)
 endif()
 
 # ============================================================

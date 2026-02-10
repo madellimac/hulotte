@@ -6,8 +6,8 @@ build/
 INSTALL_INFO.txt
 
 # Dependencies
-aff3ct/
-streampu/
+/aff3ct/
+/streampu/
 
 # Python
 __pycache__/

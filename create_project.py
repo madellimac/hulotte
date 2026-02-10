@@ -222,7 +222,60 @@ def ask_name(question, default=None):
             print("Invalid name. Use alphanumeric characters, hyphens, or underscores.")
 
 
-def create_cmakelists(project_name, hulotte_path, streampu_path, aff3ct_path, use_aff3ct, use_custom):
+def copy_common_files(project_dir, hulotte_dir):
+    """Copy Common HW/SW files to project."""
+    src_common = Path(hulotte_dir) / "Common" / "streampu"
+    dst_common = Path(project_dir) / "common"
+    
+    if src_common.exists():
+        shutil.copytree(src_common, dst_common, dirs_exist_ok=True)
+        print(f"✓ Copied common files to common/")
+        return True
+    else:
+        print(f"WARNING: Common directory not found at {src_common}")
+        return False
+
+
+def create_hw_file():
+    """Generate simple Verilog module."""
+    return """/*
+ * Simple Top_Level module for Verilator simulation.
+ * Implements a basic incrementer with valid/ready handshake.
+ */
+module Top_Level(
+    input  logic        clk,
+    input  logic        reset,
+    input  logic [31:0] in_data,
+    input  logic        in_valid,
+    output logic        in_ready,
+    output logic [31:0] out_data,
+    output logic        out_valid,
+    input  logic        out_ready
+);
+
+    // Simple pass-through buffer with increment
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            out_valid <= 1'b0;
+            out_data  <= 32'b0;
+            in_ready  <= 1'b0;
+        end else begin
+            in_ready <= 1'b1; // Always ready in this simple example
+            
+            if (in_valid) begin
+                out_data  <= in_data + 1; // Increment payload
+                out_valid <= 1'b1;
+            end else if (out_ready) begin
+                out_valid <= 1'b0;
+            end
+        end
+    end
+
+endmodule
+"""
+
+
+def create_cmakelists(project_name, hulotte_path, streampu_path, aff3ct_path, use_aff3ct, use_custom, use_hw, use_streampu):
     """Generate CMakeLists.txt content."""
     
     cmake = f"""cmake_minimum_required(VERSION 3.10)
@@ -234,10 +287,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ============================================================
 # DEPENDENCIES
 # ============================================================
-set(STREAMPU_ROOT "{streampu_path}" CACHE PATH "Path to StreamPU")
 """
+    if use_streampu:
+        cmake += f'set(STREAMPU_ROOT "{streampu_path}" CACHE PATH "Path to StreamPU")\n'
+
     if use_aff3ct:
         cmake += f'set(AFF3CT_ROOT "{aff3ct_path}" CACHE PATH "Path to AFF3CT")\n'
+    
+    if use_hw:
+        cmake += """# Verilator
+find_package(Verilator REQUIRED)
+find_package(Threads REQUIRED)
+"""
     
     cmake += f'set(HULOTTE_ROOT "{hulotte_path}" CACHE PATH "Path to Hulotte")\n\n'
     
@@ -329,12 +390,53 @@ if(CPPTRACE_LIBRARY)
     include_directories(${STREAMPU_ROOT}/lib/cpptrace/include)
 endif()
 
+"""
+    if use_hw:
+        cmake += """# Hardware Simulation Includes
+include_directories(common/hw)
+include_directories(common/sw)
+"""
+
+    if use_streampu:
+        cmake += """
 add_definitions(-DHULOTTE_USE_STREAMPU)
 
 # ============================================================
 # PROJECT SOURCES
 # ============================================================
 """
+    else:
+        cmake += """
+# ============================================================
+# PROJECT SOURCES
+# ============================================================
+"""
+    if use_hw:
+        cmake += """# Hardware Module (Verilog)
+set(VERILOG_SRC src/hw/Top_Level.sv)
+
+add_library(VTop_Level STATIC ${VERILOG_SRC})
+set_property(TARGET VTop_Level PROPERTY LINKER_LANGUAGE CXX)
+
+# Verilate the module (generate C++)
+# This creates a library VTop_Level__ALL.a
+verilate(VTop_Level
+    SOURCES ${VERILOG_SRC}
+    TOP_MODULE Top_Level
+    INCLUDE_DIRS src/hw
+    VERILATOR_ARGS -Wno-fatal --trace
+)
+
+# Shared Simulation Wrapper
+add_library(VerilatorSimulation STATIC
+    common/hw/VerilatorSimulation.cpp
+)
+target_include_directories(VerilatorSimulation PUBLIC common/hw)
+
+# Link the Verilated model to our wrapper
+target_link_libraries(VerilatorSimulation PUBLIC VTop_Level)
+"""
+
     if use_custom:
         cmake += f"""# Custom module
 add_library({project_name}_custom STATIC
@@ -342,7 +444,9 @@ add_library({project_name}_custom STATIC
 )
 target_include_directories({project_name}_custom PUBLIC src)
 target_link_libraries({project_name}_custom PUBLIC ${{HULOTTE_LIBS}})
-
+"""
+        if use_streampu or use_aff3ct:
+            cmake += f"""
 # Main executable
 add_executable({project_name} src/main.cpp)
 target_link_libraries({project_name} {project_name}_custom)
@@ -352,12 +456,28 @@ target_link_libraries({project_name} {project_name}_custom)
 add_executable({project_name} src/main.cpp)
 target_link_libraries({project_name} ${{HULOTTE_LIBS}})
 """
+
+    if use_hw:
+         cmake += f"""# Link Hardware Simulation
+target_link_libraries({project_name} VerilatorSimulation Threads::Threads)
+"""
     
     return cmake
 
-def create_main_cpp(use_custom, use_aff3ct):
+def create_main_cpp(use_custom, use_aff3ct, use_hw, use_streampu):
     """Generate main.cpp content."""
     
+    if not use_streampu:
+        return """#include <iostream>
+
+int main(int argc, char** argv)
+{
+    std::cout << "Starting Hulotte project (Basic C++)..." << std::endl;
+    // Add your code here
+    return 0;
+}
+"""
+
     includes = """#include <iostream>
 #include <vector>
 #include <fstream>
@@ -366,6 +486,9 @@ def create_main_cpp(use_custom, use_aff3ct):
     if use_aff3ct:
         includes += """#include <aff3ct.hpp>
 """
+    if use_hw:
+        includes += '#include "VerilatorSimulation.hpp"\n'
+        
     if use_custom:
         includes += '#include "custom/MyModule.hpp"\n'
 
@@ -398,44 +521,55 @@ def create_main_cpp(use_custom, use_aff3ct):
         if use_custom:
             modules += """    module::MyModule         my_module(K);
 """
+        if use_hw:
+            modules += """    module::VerilatorSimulation verilator_sim(K);
+"""
 
         sockets_bind = """
     // 2. Sockets binding
     using namespace aff3ct::module;
     using namespace aff3ct::tools;
+    
+    // Chain construction
 """
+        # Determine chain order
+        chain = []
+        chain.append('source   [src::tsk::generate][(int)src::sck::generate::out_data]')
+        
         if use_custom:
-            sockets_bind += """    // Init -> Custom -> Encoder -> Decoder -> Finalizer
+            chain.append('my_module ["process::in"]')
+            chain.append('my_module ["process::out"]')
             
-    // Warning: Socket binding uses explicit cast to (int) for C++11 enum classes
-    source   [src::tsk::generate][(int)src::sck::generate::out_data] = my_module ["process::in"];
-    my_module["process::out"]  = encoder   [enc::tsk::encode][(int)enc::sck::encode::U_K];
-    
-    encoder  [enc::tsk::encode][(int)enc::sck::encode::X_N] = 
-          decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
-          
-    decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K] = finalizer["finalize::in"];
-"""
-        else:
-            sockets_bind += """    // Init -> Encoder -> Decoder -> Finalizer
+        if use_hw:
+            chain.append('verilator_sim["simulate::input"]')
+            chain.append('verilator_sim["simulate::output"]')
+        
+        chain.append('encoder  [enc::tsk::encode][(int)enc::sck::encode::U_K]')
+        chain.append('encoder  [enc::tsk::encode][(int)enc::sck::encode::X_N]')
+        chain.append('decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N]')
+        chain.append('decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K]')
+        chain.append('finalizer["finalize::in"]')
+        
+        # Generate binding code
+        for i in range(0, len(chain)-1, 2):
+            out_sock = chain[i]
+            in_sock = chain[i+1]
+            sockets_bind += f"    {out_sock} = {in_sock};\n"
             
-    source   [src::tsk::generate][(int)src::sck::generate::out_data] = encoder   [enc::tsk::encode][(int)enc::sck::encode::U_K];
-    
-    encoder[enc::tsk::encode][(int)enc::sck::encode::X_N] = 
-          decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
-          
-    decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K] = finalizer["finalize::in"];
-"""
-    
-    # Standard StreamPU Chain: Init -> Incr -> Finalizer
+    # Standard StreamPU Chain: Init -> Incr/Verilator -> Finalizer
     else:
         modules = """
     // 1. Modules creation
     const int n_elmts = 16;
     module::Initializer<int> initializer(n_elmts);
-    module::Incrementer<int> incrementer(n_elmts);
-    module::Finalizer  <int> finalizer(n_elmts);
 """
+        if use_hw:
+            modules += '    module::VerilatorSimulation verilator_sim(n_elmts);\n'
+        else:
+            modules += '    module::Incrementer<int> incrementer(n_elmts);\n'
+            
+        modules += '    module::Finalizer  <int> finalizer(n_elmts);\n'
+
         if use_custom:
             modules += """    module::MyModule         my_module(n_elmts);
 """
@@ -443,14 +577,19 @@ def create_main_cpp(use_custom, use_aff3ct):
         sockets_bind = """
     // 2. Sockets binding
 """
+        main_mod = "verilator_sim" if use_hw else "incrementer"
+        main_task = "simulate" if use_hw else "increment"
+        main_in = "input" if use_hw else "in"
+        main_out = "output" if use_hw else "out"
+
         if use_custom:
-            sockets_bind += """    initializer["initialize::out"] = incrementer["increment::in"];
-    incrementer["increment::out"] = my_module  ["process::in"];
+            sockets_bind += f"""    initializer["initialize::out"] = {main_mod}["{main_task}::{main_in}"];
+    {main_mod}["{main_task}::{main_out}"] = my_module  ["process::in"];
     my_module  ["process::out"]   = finalizer  ["finalize::in"];
 """
         else:
-            sockets_bind += """    initializer["initialize::out"] = incrementer["increment::in"];
-    incrementer["increment::out"] = finalizer  ["finalize::in"];
+            sockets_bind += f"""    initializer["initialize::out"] = {main_mod}["{main_task}::{main_in}"];
+    {main_mod}["{main_task}::{main_out}"] = finalizer  ["finalize::in"];
 """
 
     first_task_code = 'first_tasks.push_back(&source("generate"));' if use_aff3ct else 'first_tasks.push_back(&initializer("initialize"));'
@@ -574,10 +713,10 @@ void MyModule::_process(const int* in, int* out, const int frame_id)
     return header, implementation
 
 
-def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=None, streampu_root=None, aff3ct_root=None):
+def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=None, use_custom=None, use_hw=None, streampu_root=None, aff3ct_root=None):
     """Main project generation function."""
     print_ascii_art()
-    if not quiet:
+    if hoot:
         play_owl_hoot()
     print("\n" + "="*60)
     print("HULOTTE PROJECT GENERATOR")
@@ -595,10 +734,10 @@ def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=N
         # For full non-interactive, we should skip output_dir prompt if project_name is provided (assumption).
         pass
 
-    if project_name and not quiet: # If interactive mode mostly
+    # if project_name and not quiet: # If interactive mode mostly (Old logic removed)
          # If we are fully automated, we might want to skip this.
          # But let's keep it simple: if name is passed, we assume non-interactive for basic stuff.
-         pass
+    #     pass
     
     # We'll just define logic: if arguments are passed, use them.
     
@@ -614,8 +753,11 @@ def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=N
 
     hulotte_dir = str(Path.cwd().resolve())
     
+    # StreamPU is mandatory
+    use_streampu = True
+
     if streampu_root:
-        streampu_dir = streampu_root
+        streampu_dir = str(Path(streampu_root).resolve())
     else:
         streampu_dir = ask_streampu_root(None)
     
@@ -624,7 +766,7 @@ def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=N
     
     if use_aff3ct:
         if aff3ct_root:
-            aff3ct_dir = aff3ct_root
+            aff3ct_dir = str(Path(aff3ct_root).resolve())
         else:
             aff3ct_dir = ask_aff3ct_root(None)
     else:
@@ -632,6 +774,9 @@ def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=N
     
     if use_custom is None:
         use_custom = ask_yes_no("Add custom module?", default=True)
+
+    if use_hw is None:
+        use_hw = ask_yes_no("Add hardware simulation (Verilator)?", default=False)
     
     # Create project directory
     project_dir = Path(output_dir) / project_name
@@ -647,6 +792,17 @@ def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=N
     src_dir = project_dir / "src"
     src_dir.mkdir(exist_ok=True)
     
+    # HW Support
+    if use_hw:
+        hw_dir = src_dir / "hw"
+        hw_dir.mkdir(exist_ok=True)
+        
+        with open(hw_dir / "Top_Level.sv", "w") as f:
+            f.write(create_hw_file())
+        print(f"✓ Created src/hw/Top_Level.sv")
+        
+        copy_common_files(project_dir, hulotte_dir)
+
     # Create CMakeLists.txt
     cmake_content = create_cmakelists(
         project_name,
@@ -654,7 +810,9 @@ def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=N
         streampu_dir,
         aff3ct_dir,
         use_aff3ct,
-        use_custom
+        use_custom,
+        use_hw,
+        use_streampu
     )
     
     with open(project_dir / "CMakeLists.txt", "w") as f:
@@ -662,7 +820,7 @@ def create_project(quiet=False, project_name=None, use_aff3ct=None, use_custom=N
     print(f"✓ Created CMakeLists.txt")
     
     # Create main.cpp
-    main_content = create_main_cpp(use_custom, use_aff3ct)
+    main_content = create_main_cpp(use_custom, use_aff3ct, use_hw, use_streampu)
     with open(src_dir / "main.cpp", "w") as f:
         f.write(main_content)
     print(f"✓ Created src/main.cpp")
@@ -693,12 +851,17 @@ cmake-build-debug/
 cmake-build-release/
 .idea/
 .vscode/
+obj_dir/
 """
     with open(project_dir / ".gitignore", "w") as f:
         f.write(gitignore)
     print(f"✓ Created .gitignore")
     
     # Create build script
+    cmake_args = f'-DSTREAMPU_ROOT="{streampu_dir}" \\'
+    if use_aff3ct:
+        cmake_args += f'\n    -DAFF3CT_ROOT="{aff3ct_dir}" \\'
+    
     build_script = f"""#!/bin/bash
 # Build script for {project_name}
 
@@ -709,8 +872,7 @@ mkdir -p "${{BUILD_DIR}}"
 cd "${{BUILD_DIR}}"
 
 cmake .. \\
-    -DSTREAMPU_ROOT="{streampu_dir}" \\
-    -DAFF3CT_ROOT="{aff3ct_dir}" \\
+    {cmake_args}
     -DHULOTTE_ROOT="{hulotte_dir}" \\
     -DCMAKE_BUILD_TYPE=Release
 
@@ -764,6 +926,7 @@ make -j
 - StreamPU integration: ✓
 - AFF3CT support: {"✓" if use_aff3ct else "✗"}
 - Custom module: {"✓" if use_custom else "✗"}
+- Hardware simulation: {"✓" if use_hw else "✗"}
 """
     with open(project_dir / "README.md", "w") as f:
         f.write(readme)
@@ -779,6 +942,7 @@ make -j
     print(f"Hulotte: {to_relative_path(hulotte_dir)}")
     print(f"AFF3CT: {'Enabled' if use_aff3ct else 'Disabled'}")
     print(f"Custom module: {'Enabled' if use_custom else 'Disabled'}")
+    print(f"Hardware simulation: {'Enabled' if use_hw else 'Disabled'}")
     print(f"\nNext steps:")
     print(f"  1. cd {to_relative_path(project_dir)}")
     print(f"  2. ./build.sh")
@@ -790,24 +954,49 @@ make -j
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a new Hulotte project")
-    parser.add_argument("name", nargs="?", help="Project name")
-    parser.add_argument("--quiet", "-q", action="store_true", help="Disable startup sound")
-    parser.add_argument("--aff3ct", action="store_true", help="Enable AFF3CT support")
-    parser.add_argument("--no-custom", action="store_true", help="Disable custom module")
+    parser.add_argument("positional_name", nargs="?", help="Project name")
+    parser.add_argument("--name", dest="flag_name", help="Project name (via flag)")
+    parser.add_argument("--hoot", action="store_true", help="Enable startup sound")
+    
+    # Enable/Disable arguments
+    
+    # AFF3CT
+    parser.add_argument("--aff3ct", action="store_const", const=True, dest="aff3ct", help="Enable AFF3CT support")
+    parser.add_argument("--no-aff3ct", action="store_const", const=False, dest="aff3ct", help="Disable AFF3CT support")
+    
+    # Custom Module
+    parser.add_argument("--custom", action="store_const", const=True, dest="custom", help="Enable custom module")
+    parser.add_argument("--no-custom", action="store_const", const=False, dest="custom", help="Disable custom module")
+    
+    # Hardware Simulation
+    parser.add_argument("--hw", action="store_const", const=True, dest="hw", help="Enable hardware simulation")
+    parser.add_argument("--no-hw", action="store_const", const=False, dest="hw", help="Disable hardware simulation")
+
     parser.add_argument("--streampu-root", help="Path to StreamPU root")
     parser.add_argument("--aff3ct-root", help="Path to AFF3CT root")
     args = parser.parse_args()
 
+    project_name = args.flag_name if args.flag_name else args.positional_name
+
     # Determine values based on args and interactivity mode
-    use_custom = False if args.no_custom else (True if args.name else None)
-    use_aff3ct = True if args.aff3ct else (False if args.name else None)
+    # If project_name is present, we are in non-interactive mode for unset values -> we apply defaults.
+    # If project_name is missing, we are in interactive mode -> we pass None to trigger questions.
+    
+    is_non_interactive = (project_name is not None)
+    
+    use_streampu = True
+    use_custom   = args.custom   if args.custom is not None else (True if is_non_interactive else None)
+    use_aff3ct   = args.aff3ct   if args.aff3ct is not None else (False if is_non_interactive else None)
+    use_hw       = args.hw       if args.hw is not None else (False if is_non_interactive else None)
 
     try:
         success = create_project(
-            quiet=args.quiet,
-            project_name=args.name,
+            hoot=args.hoot,
+            project_name=project_name,
+            use_streampu=use_streampu,
             use_aff3ct=use_aff3ct,
             use_custom=use_custom,
+            use_hw=use_hw,
             streampu_root=args.streampu_root,
             aff3ct_root=args.aff3ct_root
         )
