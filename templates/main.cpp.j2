@@ -1,0 +1,145 @@
+{% if not use_streampu %}
+#include <iostream>
+
+int main(int argc, char** argv)
+{
+    std::cout << "Starting Hulotte project (Basic C++)..." << std::endl;
+    // Add your code here
+    return 0;
+}
+{% else %}
+#include <iostream>
+#include <vector>
+#include <fstream>
+#include <streampu.hpp>
+{% if use_aff3ct %}
+#include <aff3ct.hpp>
+{% endif %}
+{% if use_hw %}
+#include "VerilatorSimulation.hpp"
+{% endif %}
+{% if use_custom %}
+#include "custom/MyModule.hpp"
+{% endif %}
+
+using namespace spu;
+using namespace spu::module;
+
+int main(int argc, char** argv)
+{
+    std::cout << "Starting Hulotte project..." << std::endl;
+
+{% if use_aff3ct %}
+    // 1. Modules creation
+    
+    // RS(255, 239) => t=8, m=8. Bits 2040 -> 1912.
+    // NOTE: This uses aff3ct B_32 (32-bit integer) template instantiation.
+    const int N_rs = 255;  // Symbols
+    const int K_rs = 239;  // Symbols
+    const int m = 8;       // Bits per symbol
+    const int t = (N_rs - K_rs) / 2; // Correction power
+    const int N = N_rs * m; // Total bits
+    const int K = K_rs * m; // Info bits
+
+    module::Source_random<> source(K);
+    module::Finalizer    <> finalizer(K);
+    
+    // Create RS Polynomial Generator (needed for RS construction)
+    aff3ct::tools::RS_polynomial_generator poly(N_rs, t);
+    
+    // Create Encoder and Decoder
+    aff3ct::module::Encoder_RS<>     encoder(K_rs, N_rs, poly);
+    aff3ct::module::Decoder_RS_std<> decoder(K_rs, N_rs, poly);    
+
+    {% if use_custom %}
+    module::MyModule         my_module(K);
+    {% endif %}
+    {% if use_hw %}
+    module::VerilatorSimulation verilator_sim(K);
+    {% endif %}
+
+    // 2. Sockets binding
+    using namespace aff3ct::module;
+    using namespace aff3ct::tools;
+    
+    // Chain construction
+    source   [src::tsk::generate][(int)src::sck::generate::out_data] = 
+    {% if use_custom %}
+    my_module ["process::in"];
+    my_module ["process::out"] = 
+    {% endif %}
+    {% if use_hw %}
+    verilator_sim["simulate::input"];
+    verilator_sim["simulate::output"] = 
+    {% endif %}
+    encoder  [enc::tsk::encode][(int)enc::sck::encode::U_K];
+
+    encoder  [enc::tsk::encode][(int)enc::sck::encode::X_N]        = decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
+    decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K] = finalizer["finalize::in"];
+
+{% else %}
+    // 1. Modules creation
+    const int n_elmts = 16;
+    module::Initializer<int> initializer(n_elmts);
+    {% if use_hw %}
+    module::VerilatorSimulation verilator_sim(n_elmts);
+    {% else %}
+    module::Incrementer<int> incrementer(n_elmts);
+    {% endif %}
+    module::Finalizer  <int> finalizer(n_elmts);
+
+    {% if use_custom %}
+    module::MyModule         my_module(n_elmts);
+    {% endif %}
+    
+    // 2. Sockets binding
+    {% set main_mod = "verilator_sim" if use_hw else "incrementer" %}
+    {% set main_task = "simulate" if use_hw else "increment" %}
+    {% set main_in = "input" if use_hw else "in" %}
+    {% set main_out = "output" if use_hw else "out" %}
+
+    initializer["initialize::out"] = {{ main_mod }}["{{ main_task }}::{{ main_in }}"];
+    {% if use_custom %}
+    {{ main_mod }}["{{ main_task }}::{{ main_out }}"] = my_module  ["process::in"];
+    my_module  ["process::out"]   = finalizer  ["finalize::in"];
+    {% else %}
+    {{ main_mod }}["{{ main_task }}::{{ main_out }}"] = finalizer  ["finalize::in"];
+    {% endif %}
+{% endif %}
+
+    // 3. Sequence creation
+    std::vector<runtime::Task*> first_tasks;
+{% if use_aff3ct %}
+    first_tasks.push_back(&source("generate"));
+{% else %}
+    first_tasks.push_back(&initializer("initialize"));
+{% endif %}
+
+    runtime::Sequence sequence(first_tasks);
+
+    // Configuration
+    for (auto& type : sequence.get_tasks_per_types())
+        for (auto& t : type)
+        {
+            t->set_stats(true);
+            t->set_debug(false);
+        }
+
+    // 4. Execution
+    std::cout << "Processing..." << std::endl;
+    
+    // Export dot file for visualization
+    std::ofstream file("graph.dot");
+    sequence.export_dot(file);
+
+    // Run the sequence
+    for (auto i = 0; i < 3; i++)
+        sequence.exec_seq(); // Run 1 frame at a time
+
+    // 5. Stats
+    std::cout << "\\nEnd of execution." << std::endl;
+    tools::Stats::show(sequence.get_tasks_per_types(), true, false);
+
+    return 0;
+}
+{% endif %}

@@ -1,0 +1,34 @@
+/*
+ * Simple Top_Level module for Verilator simulation.
+ * Implements a basic incrementer with valid/ready handshake.
+ */
+module Top_Level(
+    input  logic        clk,
+    input  logic        reset,
+    input  logic [31:0] in_data,
+    input  logic        in_valid,
+    output logic        in_ready,
+    output logic [31:0] out_data,
+    output logic        out_valid,
+    input  logic        out_ready
+);
+
+    // Simple pass-through buffer with increment
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            out_valid <= 1'b0;
+            out_data  <= 32'b0;
+            in_ready  <= 1'b0;
+        end else begin
+            in_ready <= 1'b1; // Always ready in this simple example
+            
+            if (in_valid) begin
+                out_data  <= in_data + 1; // Increment payload
+                out_valid <= 1'b1;
+            end else if (out_ready) begin
+                out_valid <= 1'b0;
+            end
+        end
+    end
+
+endmodule
