@@ -13,6 +13,7 @@ import struct
 import shutil
 import tempfile
 import subprocess
+import zipfile
 from pathlib import Path
 
 
@@ -506,7 +507,82 @@ def install_streampu(hulotte_root):
     }
 
 
-def create_install_info(hulotte_root, aff3ct_info, streampu_info):
+def install_surfer(hulotte_root):
+    """Download and install Surfer binary"""
+    print_header("Installing Surfer (Waveform Viewer)")
+    
+    # URL for Linux x86_64 binary (v0.3.0 Release)
+    # Using stable release package instead of CI artifacts
+    surfer_url = "https://gitlab.com/api/v4/projects/42073614/packages/generic/surfer/v0.3.0/surfer_linux_v0.3.0.zip"
+    
+    # Install in tools directory
+    tools_dir = hulotte_root / "tools"
+    tools_dir.mkdir(exist_ok=True)
+    zip_file = tools_dir / "surfer.zip"
+    target_file = tools_dir / "surfer"
+    
+    print_info(f"Downloading Surfer v0.3.0...")
+    try:
+        # Try wget first
+        if shutil.which("wget"):
+            cmd = f"wget -O {zip_file} {surfer_url} -q --show-progress"
+            if not run_command(cmd, show_output=True):
+                print_error("Failed to download Surfer with wget")
+                return None
+        # Try curl
+        elif shutil.which("curl"):
+            cmd = f"curl -L -o {zip_file} {surfer_url}"
+            if not run_command(cmd, show_output=True):
+                print_error("Failed to download Surfer with curl")
+                return None
+        else:
+             print_error("Neither wget nor curl found. Cannot download Surfer.")
+             return None
+
+        # Extract zip
+        print_info("Extracting Surfer...")
+        try:
+            with zipfile.ZipFile(zip_file, 'r') as zf:
+                # Assuming the binary is named 'surfer' inside the zip
+                # List files to be sure
+                file_names = zf.namelist()
+                surfer_bin_name = next((name for name in file_names if "surfer" in name and not name.endswith("/")), None)
+                
+                if not surfer_bin_name:
+                     print_error("Could not find surfer binary in zip archive")
+                     return None
+                
+                # Extract to tools dir
+                zf.extract(surfer_bin_name, tools_dir)
+                
+                # If extracted file is not named 'surfer' (e.g. inside a folder), move it
+                extracted_path = tools_dir / surfer_bin_name
+                if extracted_path.resolve() != target_file.resolve():
+                    shutil.move(str(extracted_path), str(target_file))
+
+        except zipfile.BadZipFile:
+            print_error("Downloaded file is not a valid zip archive")
+            return None
+
+        target_file.chmod(0o755) # Make executable
+        
+        # Cleanup zip
+        if zip_file.exists():
+            zip_file.unlink()
+
+        print_success(f"Surfer downloaded to {to_relative_path(target_file)}")
+        print_info("Consider adding this directory to your PATH:")
+        print_info(f"  export PATH=$PATH:{tools_dir}")
+        
+        return str(target_file)
+        
+    except Exception as e:
+        print_error(f"Error installing Surfer: {e}")
+        return None
+
+
+
+def create_install_info(hulotte_root, aff3ct_info, streampu_info, surfer_path=None):
     """
     Create a file with installation information
     """
@@ -530,11 +606,15 @@ def create_install_info(hulotte_root, aff3ct_info, streampu_info):
             f.write(f"  Root: {streampu_info.get('streampu_root', 'N/A')}\n")
             f.write(f"  Library: {streampu_info.get('streampu_lib', 'N/A')}\n")
             f.write("\n")
+
+        if surfer_path:
+             f.write(f"Surfer (Waveform Viewer): {surfer_path}\n")
         
         f.write("\nTo create a new project, run:\n")
         f.write("  python3 create_project.py\n")
     
     print_success(f"Installation info saved to: {info_file}")
+
 
 
 def main(quiet=False):
@@ -589,10 +669,15 @@ def main(quiet=False):
         streampu_info = install_streampu(hulotte_root)
         if streampu_info is None:
             print_error("StreamPU installation failed")
+
+    # Ask about Surfer installation
+    surfer_path = None
+    if ask_yes_no("\nDo you want to install Surfer (Waveform Viewer)?", default=True):
+        surfer_path = install_surfer(hulotte_root)
     
     # Create installation info file
-    if aff3ct_info or streampu_info:
-        create_install_info(hulotte_root, aff3ct_info, streampu_info)
+    if aff3ct_info or streampu_info or surfer_path:
+        create_install_info(hulotte_root, aff3ct_info, streampu_info, surfer_path)
     
     # Final summary
     print_header("Installation Complete")
@@ -604,8 +689,12 @@ def main(quiet=False):
     
     if streampu_info:
         print_success(f"StreamPU (standalone) installed at: {streampu_info['streampu_root']}")
+
+    if surfer_path:
+        print_success(f"Surfer installed at: {surfer_path}")
     
     print("\n" + "="*60)
+
     print_info("Next steps:")
     print("  1. Run: python3 create_project.py")
     print("  2. Follow the prompts to create your project")
