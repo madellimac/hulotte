@@ -15,21 +15,7 @@ import tempfile
 import subprocess
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
-
-
-def to_relative_path(path):
-    """Convert absolute path to relative path from current directory."""
-    try:
-        path_obj = Path(path).resolve()
-        cwd = Path.cwd().resolve()
-        try:
-            rel_path = path_obj.relative_to(cwd)
-            return f"./{rel_path}" if str(rel_path) != "." else "."
-        except ValueError:
-            # Path is not relative to cwd, return as-is
-            return str(path)
-    except:
-        return str(path)
+from hulotte_utils import to_relative_path, print_ascii_art, play_owl_hoot
 
 
 def render_template(template_name, context):
@@ -38,123 +24,6 @@ def render_template(template_name, context):
     env = Environment(loader=FileSystemLoader(template_dir))
     template = env.get_template(template_name)
     return template.render(context)
-
-
-def print_ascii_art():
-    """Print hulotte ASCII art if available."""
-    try:
-        art_path = Path(__file__).resolve().parent / "hulotte.txt"
-        if art_path.exists():
-            print(art_path.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-
-
-def play_wav_file(wav_path):
-    """Play a WAV file (best-effort)."""
-    if sys.platform.startswith("win"):
-        try:
-            import winsound
-            winsound.PlaySound(str(wav_path), winsound.SND_FILENAME)
-        except Exception:
-            print("\a", end="")
-        return
-    if sys.platform == "darwin":
-        if shutil.which("afplay"):
-            subprocess.run(["afplay", str(wav_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            print("\a", end="")
-        return
-
-    if shutil.which("paplay"):
-        subprocess.run(["paplay", str(wav_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    elif shutil.which("aplay"):
-        subprocess.run(["aplay", "-q", str(wav_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    elif shutil.which("play"):
-        subprocess.run(["play", "-q", str(wav_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        print("\a", end="")
-
-
-def play_owl_hoot():
-    """Play a short owl-like hoot sound (best-effort)."""
-    try:
-        sample_rate = 22050
-        preset = os.getenv("HULOTTE_HOOT_PRESET", "classic").strip().lower()
-        wav_override = os.getenv("HULOTTE_HOOT_WAV", "").strip()
-        local_wav = Path(__file__).resolve().parent / "hulotte.wav"
-
-        if local_wav.exists():
-            play_wav_file(local_wav)
-            return
-
-        if wav_override:
-            wav_path = Path(wav_override).expanduser().resolve()
-            if wav_path.exists() and wav_path.suffix.lower() == ".wav":
-                play_wav_file(wav_path)
-                return
-
-        download_dirs = [Path.home() / "Téléchargements", Path.home() / "Downloads"]
-        for dl_dir in download_dirs:
-            if dl_dir.exists():
-                wav_files = sorted(dl_dir.glob("*.wav"))
-                if len(wav_files) == 1:
-                    play_wav_file(wav_files[0])
-                    return
-
-        def synth_hoot(freq_start, freq_end, duration, vibrato_hz=0.0, vibrato_depth=0.0):
-            samples = int(sample_rate * duration)
-            data = []
-            for i in range(samples):
-                t = i / sample_rate
-                sweep = freq_start + (freq_end - freq_start) * (t / duration)
-                if vibrato_hz > 0.0:
-                    sweep += vibrato_depth * math.sin(2 * math.pi * vibrato_hz * t)
-                env = math.sin(math.pi * t / duration)
-                val = 0.5 * env * math.sin(2 * math.pi * sweep * t)
-                data.append(int(max(-1.0, min(1.0, val)) * 32767))
-            return data
-
-        if preset == "deep":
-            hoot_duration = 0.60
-            pause_duration = 0.20
-            hoot1 = synth_hoot(300, 240, hoot_duration)
-            hoot2 = synth_hoot(280, 220, hoot_duration)
-        elif preset == "vibrato":
-            hoot_duration = 0.50
-            pause_duration = 0.18
-            hoot1 = synth_hoot(380, 320, hoot_duration, vibrato_hz=5.0, vibrato_depth=12.0)
-            hoot2 = synth_hoot(360, 300, hoot_duration, vibrato_hz=5.0, vibrato_depth=12.0)
-        elif preset == "soft":
-            hoot_duration = 0.55
-            pause_duration = 0.20
-            hoot1 = synth_hoot(340, 300, hoot_duration)
-            hoot2 = synth_hoot(320, 280, hoot_duration)
-        else:
-            hoot_duration = 0.45
-            pause_duration = 0.15
-            hoot1 = synth_hoot(360, 320, hoot_duration)
-            hoot2 = synth_hoot(340, 300, hoot_duration)
-
-        pause = [0] * int(sample_rate * pause_duration)
-        samples = hoot1 + pause + hoot2
-
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            wav_path = tmp.name
-        with wave.open(wav_path, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(sample_rate)
-            wav_file.writeframes(b"".join(struct.pack("<h", s) for s in samples))
-
-        play_wav_file(wav_path)
-
-        try:
-            os.remove(wav_path)
-        except Exception:
-            pass
-    except Exception:
-        print("\a", end="")
 
 
 def ask_yes_no(question, default=False):
