@@ -446,6 +446,53 @@ def create_install_info(hulotte_root, aff3ct_info, streampu_info, surfer_path=No
 
 
 
+def setup_python_environment(hulotte_root):
+    """
+    Setup Python virtual environment and install dependencies
+    """
+    print_header("Setting up Python Environment")
+    
+    # Create .venv in the current directory (hulotte root)
+    venv_dir = hulotte_root / ".venv"
+    
+    # Check if venv exists
+    if not venv_dir.exists():
+        print_info(f"Creating virtual environment at: {to_relative_path(venv_dir)}")
+        try:
+             subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+        except subprocess.CalledProcessError:
+             print_error("Failed to create virtual environment")
+             return None
+    else:
+        print_success(f"Virtual environment found at: {to_relative_path(venv_dir)}")
+        
+    # Install dependencies
+    print_info("Installing Python dependencies (This may take a moment)...")
+    
+    # Dependencies list
+    packages = ["jinja2"]
+    
+    # Pip inside venv
+    pip_cmd = venv_dir / "bin" / "pip"
+    
+    try:
+        # Upgrade pip first
+        subprocess.run([str(pip_cmd), "install", "--upgrade", "pip"], 
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Install packages
+        for package in packages:
+            print_info(f"Installing {package}...")
+            subprocess.run([str(pip_cmd), "install", package], check=True)
+            
+        print_success("Python dependencies installed successfully")
+        return venv_dir
+        
+    except subprocess.CalledProcessError as e:
+        print_error(f"Failed to install dependencies: {e}")
+        return None
+
+
 def main(hoot=False):
     """Main installation script"""
     print_ascii_art()
@@ -453,8 +500,9 @@ def main(hoot=False):
         play_owl_hoot()
     print_header("Hulotte Dependencies Installer")
     
-    # Get Hulotte root (current directory)
-    hulotte_root = Path.cwd().resolve()
+    # Get Hulotte root
+    # Use the directory where this script is located, not necessarily CWD
+    hulotte_root = Path(__file__).resolve().parent
     print_info(f"Hulotte root: {to_relative_path(hulotte_root)}")
     
     # Check prerequisites
@@ -467,6 +515,13 @@ def main(hoot=False):
         return 1
     
     print_success("All prerequisites satisfied")
+
+    # Install Python dependencies
+    venv_dir = setup_python_environment(hulotte_root)
+    if venv_dir is None:
+        print_error("Python environment setup failed")
+        if not ask_yes_no("Continue anyway?", default=False):
+            return 1
     
     # Ask about AFF3CT installation
     aff3ct_info = None
@@ -525,9 +580,13 @@ def main(hoot=False):
     print("\n" + "="*60)
 
     print_info("Next steps:")
-    print("  1. Run: python3 create_project.py")
-    print("  2. Follow the prompts to create your project")
-    print("  3. Use the paths shown above when asked")
+    if venv_dir:
+        activate_path = venv_dir / "bin" / "activate"
+        print(f"  1. Activate the python environment:")
+        print(f"     source {to_relative_path(activate_path)}")
+    print("  2. Run: python3 create_project.py")
+    print("  3. Follow the prompts to create your project")
+    print("  4. Use the paths shown above when asked")
     print("="*60 + "\n")
     
     return 0

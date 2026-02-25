@@ -2,8 +2,8 @@
 
 # Configuration des chemins (A adapter selon votre arborescence)
 # On suppose par defaut que les dossiers projets sont au meme niveau que hulotte
-STREAMPU_ROOT="../streampu"
-AFF3CT_ROOT="../aff3ct"
+STREAMPU_ROOT="./streampu"
+AFF3CT_ROOT="./aff3ct"
 
 # Dossier de sortie pour les tests
 OUTPUT_DIR="test_projects"
@@ -39,7 +39,16 @@ for aff3ct in "no-aff3ct" "aff3ct"; do
             
             # Execution du script python depuis le dossier parent
             # On passe les chemins des librairies pour éviter l'interactivité
-            python3 create_project.py \
+            
+            # Use venv if available
+            PYTHON_CMD="python3"
+            if [ -f ".venv/bin/python" ]; then
+                PYTHON_CMD=".venv/bin/python"
+            elif [ -f "../.venv/bin/python" ]; then
+                PYTHON_CMD="../.venv/bin/python"
+            fi
+            
+            $PYTHON_CMD create_project.py \
                 --name "$PROJ_NAME" \
                 --$aff3ct \
                 --$custom \
