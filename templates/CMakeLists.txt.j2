@@ -4,6 +4,18 @@ project({{ project_name }} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+{% if use_hw %}
+option(USE_UART "Enable UART simulation mode" OFF)
+if(USE_UART)
+    message(STATUS "Build with UART Simulation Mode ENABLED")
+    set(VERILATOR_UART_PARAM "-GUSE_UART=1")
+    add_definitions(-DUSE_UART_SIM)
+else()
+    message(STATUS "Build with UART Simulation Mode DISABLED (Direct Access)")
+    set(VERILATOR_UART_PARAM "-GUSE_UART=0")
+endif()
+{% endif %}
+
 # ============================================================
 # DEPENDENCIES
 # ============================================================
@@ -16,12 +28,10 @@ set(AFF3CT_ROOT "{{ aff3ct_root }}" CACHE PATH "Path to AFF3CT")
 {% endif %}
 
 {% if use_hw %}
-# Verilator
-find_package(Verilator REQUIRED)
+# Verilator support (CMake config provided by Verilator 5+)
+find_package(verilator REQUIRED)
 find_package(Threads REQUIRED)
 {% endif %}
-
-set(HULOTTE_ROOT "{{ hulotte_root }}" CACHE PATH "Path to Hulotte")
 
 # ============================================================
 # LOAD HULOTTE ENVIRONMENT
@@ -105,6 +115,7 @@ find_library(CPPTRACE_LIBRARY NAMES cpptrace libcpptrace.a
 if(CPPTRACE_LIBRARY)
     list(APPEND HULOTTE_LIBS ${CPPTRACE_LIBRARY})
     include_directories(${STREAMPU_ROOT}/lib/cpptrace/include)
+    add_definitions(-DSPU_STACKTRACE)
 endif()
 
 {% if use_hw %}
@@ -126,29 +137,33 @@ add_definitions(-DHULOTTE_USE_STREAMPU)
 {% endif %}
 
 {% if use_hw %}
-# Hardware Module (Verilog)
-set(VERILOG_SRC src/hw/Top_Level.sv)
-
-add_library(VTop_Level STATIC ${VERILOG_SRC})
-set_property(TARGET VTop_Level PROPERTY LINKER_LANGUAGE CXX)
-
-# Verilate the module (generate C++)
-# This creates a library VTop_Level__ALL.a
-verilate(VTop_Level
-    SOURCES ${VERILOG_SRC}
-    TOP_MODULE Top_Level
-    INCLUDE_DIRS src/hw
-    VERILATOR_ARGS -Wno-fatal --trace
+# Hardware Module (Verilog) - compiled with Verilator
+# We use the generated universal wrapper as the top for Verilator
+set(VERILOG_SRC 
+    common/hw/universal_simulation_top.sv
+    common/hw/UART_fifoed_send_V1.sv
+    common/hw/uart_recv.sv
+    src/hw/Top_Level.sv 
 )
 
-# Shared Simulation Wrapper
+# Verilated simulation wrapper library
 add_library(VerilatorSimulation STATIC
     common/hw/VerilatorSimulation.cpp
 )
 target_include_directories(VerilatorSimulation PUBLIC common/hw)
 
-# Link the Verilated model to our wrapper
-target_link_libraries(VerilatorSimulation PUBLIC VTop_Level)
+# Run Verilator to generate the C++ model from Verilog
+# The verilate() macro generates Vuniversal_simulation_top target
+verilate(VerilatorSimulation
+    SOURCES ${VERILOG_SRC}
+    TOP_MODULE universal_simulation_top
+    PREFIX Vuniversal_simulation_top
+    TRACE
+    VERILATOR_ARGS -Wno-fatal ${VERILATOR_UART_PARAM}
+)
+
+# Link Verilator-generated code to our wrapper
+target_link_libraries(VerilatorSimulation PUBLIC Threads::Threads)
 {% endif %}
 
 {% if use_custom %}

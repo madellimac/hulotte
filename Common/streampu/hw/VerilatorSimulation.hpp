@@ -6,7 +6,8 @@
 //#include "Module/Module.hpp"
 #include "streampu.hpp"
 
-class VTop_Level;
+// On change la déclaration anticipée pour le nouveau Top unique
+class Vuniversal_simulation_top;
 
 namespace spu
 {
@@ -17,7 +18,8 @@ class VerilatorSimulation  : public Stateful {
 
 private:
     
-    VTop_Level* dut;         // Remplacer "your_module" par le nom de votre module Verilog
+    // Pointeur vers le modèle Verilator généré du wrapper universel
+    Vuniversal_simulation_top* dut; 
 
     VerilatedVcdC* m_trace;
     vluint64_t sim_time = 0;

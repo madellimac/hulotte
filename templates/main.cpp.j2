@@ -32,12 +32,12 @@ int main(int argc, char** argv)
 {% if use_aff3ct %}
     // 1. Modules creation
     
-    // RS(255, 239) => t=8, m=8. Bits 2040 -> 1912.
+    // RS(7, 5) => t=1, m=3. Bits 21 -> 15.
     // NOTE: This uses aff3ct B_32 (32-bit integer) template instantiation.
-    const int N_rs = 255;  // Symbols
-    const int K_rs = 239;  // Symbols
-    const int m = 8;       // Bits per symbol
-    const int t = (N_rs - K_rs) / 2; // Correction power
+    const int N_rs = 7;  // Symbols
+    const int K_rs = 5;  // Symbols
+    const int m = 3;       // Bits per symbol
+    const int t = (N_rs - K_rs) / 2; // Correction 
     const int N = N_rs * m; // Total bits
     const int K = K_rs * m; // Info bits
 
@@ -79,10 +79,19 @@ int main(int argc, char** argv)
 
 {% else %}
     // 1. Modules creation
+    
+    // Simulation configuration
+    // Controlled by CMake option -DUSE_UART=ON/OFF
+#ifdef USE_UART_SIM
+    const bool USE_UART_BOOL = true;
+#else
+    const bool USE_UART_BOOL = false;
+#endif
+
     const int n_elmts = 16;
     module::Initializer<int> initializer(n_elmts);
     {% if use_hw %}
-    module::VerilatorSimulation verilator_sim(n_elmts);
+    module::VerilatorSimulation verilator_sim(n_elmts, USE_UART_BOOL);
     {% else %}
     module::Incrementer<int> incrementer(n_elmts);
     {% endif %}

@@ -188,6 +188,21 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
         
         copy_common_files(project_dir, hulotte_dir)
 
+        # Generate Universal Simulation Wrapper from Templates
+        common_hw_dir = project_dir / "common" / "hw"
+        common_hw_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(common_hw_dir / "universal_simulation_top.sv", "w") as f:
+             f.write(render_template("universal_simulation_top.sv.j2", {}))
+        
+        with open(common_hw_dir / "VerilatorSimulation.cpp", "w") as f:
+             f.write(render_template("VerilatorSimulation.cpp.j2", {}))
+
+        with open(common_hw_dir / "VerilatorSimulation.hpp", "w") as f:
+             f.write(render_template("VerilatorSimulation.hpp.j2", {}))
+        
+        print(f"✓ Generated Verification environment (Universal Top & Verilator wrapper)")
+
     # Create CMakeLists.txt
     cmake_context = {
         "project_name": project_name,
@@ -257,6 +272,14 @@ obj_dir/
     if use_aff3ct:
         cmake_args += f'\n    -DAFF3CT_ROOT="{aff3ct_dir}" \\'
     
+    if use_hw:
+        # Try to find Verilator config path
+        verilator_prefix = "/usr/local/share/verilator"
+        if os.path.exists("/usr/share/verilator/verilator-config.cmake"):
+            verilator_prefix = "/usr/share/verilator"
+        
+        cmake_args += f'\n    -DCMAKE_PREFIX_PATH="{verilator_prefix}" \\'
+
     build_script = f"""#!/bin/bash
 # Build script for {project_name}
 
@@ -268,7 +291,6 @@ cd "${{BUILD_DIR}}"
 
 cmake .. \\
     {cmake_args}
-    -DHULOTTE_ROOT="{hulotte_dir}" \\
     -DCMAKE_BUILD_TYPE=Release
 
 make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)

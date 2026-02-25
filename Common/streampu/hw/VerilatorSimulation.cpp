@@ -1,7 +1,8 @@
 #include <stdlib.h>
 #include <iostream>
 #include <verilated.h>          
-#include "VTop_Level.h"       
+// On inclut le header généré par Verilator pour le nouveau module top
+#include "Vuniversal_simulation_top.h"       
 #include "VerilatorSimulation.hpp"
 
 using namespace spu;
@@ -9,7 +10,8 @@ using namespace spu::module;
 
     VerilatorSimulation::VerilatorSimulation(int frame_size) : Stateful(), frame_size(frame_size) {
 
-        dut = new VTop_Level;  // Remplacer "your_module" par le nom de votre module Verilog
+        // Instanciation du nouveau wrapper
+        dut = new Vuniversal_simulation_top;  
 
         Verilated::traceEverOn(true);
         m_trace = new VerilatedVcdC;
@@ -54,9 +56,17 @@ using namespace spu::module;
         // while (sim_time < 10000) {
         while(output_data_count < frame_size) {
             
+            // --- CONFIGURATION DU MODE ---
+            // bypass_uart = 1 -> Simulation directe (comme avant)
+            // bypass_uart = 0 -> Simulation via UART
+            dut->bypass_uart = 1; 
+
             if(is_reset_time()){
                 dut->reset = 1;
-                dut->out_ready = 0;
+                // Signal "in_valid" de l'interface directe (anciennement dut->in_valid)
+                dut->direct_in_valid = 0;
+                // Pour éviter des indéterminés sur l'UART simulé si bypass=0
+                dut->pc_tx_en = 0; 
             }
             else if(is_rising_edge()){
                 dut->reset = 0;       
@@ -65,29 +75,37 @@ using namespace spu::module;
             else if(is_falling_edge()){
                 dut->reset = 0;
                 
-                // --- OUTPUT HANDLING ---
-                dut->out_ready = 1; // Always ready to receive
+                // --- OUTPUT HANDLING (Mode Direct) ---
+                // Le top level actuel n'a pas forcément de "ready" en retour vers nous dans le wrapper,
+                // on suppose qu'on est toujours prêts à lire la sortie directe.
                 
-                if (dut->out_valid) {
+                // (Si vous utilisiez out_ready dans Top_Level, il faut le mapper dans universal_simulation_top)
+                // dut->direct_out_ready = 1; 
+
+                if (dut->direct_out_valid) {
                     if (output_data_count < frame_size) {
-                        output[output_data_count++] = dut->out_data;
+                        output[output_data_count++] = dut->direct_out_data;
                     }
                 }
 
-                // --- INPUT HANDLING ---
+                // --- INPUT HANDLING (Mode Direct) ---
                 
-                // 1. Check if handshake occurred at the previous Rising Edge
-                // If Valid (we drove) and Ready (DUT drove) were both high, the data was taken.
-                if (dut->in_valid && dut->in_ready) {
+                // 1. On vérifie si l'injection précédente a été prise
+                // On suppose ici que le wrapper/core est toujours prêt (in_ready pas exposé dans wrapper universel de base)
+                // Si votre Top_Level a un in_ready, il faut l'exposer dans universal_simulation_top.sv
+                // Comme le wrapper n'avait pas in_ready dans l'exemple, on assume success.
+                bool handshake_success = dut->direct_in_valid == 1; 
+
+                if (handshake_success) {
                     input_data_count++;
                 }
 
-                // 2. Drive new data for the next Rising Edge
+                // 2. Drive new data
                 if (input_data_count < frame_size) {
-                    dut->in_valid = 1;         
-                    dut->in_data = input[input_data_count];
+                    dut->direct_in_valid = 1;         
+                    dut->direct_in_data = input[input_data_count];
                 } else {
-                    dut->in_valid = 0;
+                    dut->direct_in_valid = 0;
                 }
             }
             
