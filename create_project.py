@@ -194,9 +194,6 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
 
         with open(common_hw_dir / "universal_simulation_top.sv", "w") as f:
              f.write(render_template("universal_simulation_top.sv.j2", {}))
-        
-        with open(common_hw_dir / "VerilatorSimulation.cpp", "w") as f:
-             f.write(render_template("VerilatorSimulation.cpp.j2", {}))
 
         with open(common_hw_dir / "VerilatorSimulation.hpp", "w") as f:
              f.write(render_template("VerilatorSimulation.hpp.j2", {}))

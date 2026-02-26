@@ -151,7 +151,7 @@ if(HULOTTE_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
-if(HULOTTE_USE_VERILATOR)
+if(HULOTTE_USE_VERILATOR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/hw/CMakeLists.txt")
     add_subdirectory(hw)
 endif()
 
