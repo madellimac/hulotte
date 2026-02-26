@@ -137,31 +137,19 @@ set(VERILOG_SRC
 # 1. Generate Verilator Models for each configuration
 # -------------------------------------------------------------
 
-# --- Model 1: Direct Mode (USE_UART=0) ---
-add_library(VerilatorModel_Direct STATIC common/hw/universal_simulation_top.sv)
-verilate(VerilatorModel_Direct
+# --- Universal Model (always synthesizes both Direct and UART, runtime selection via signal) ---
+add_library(VerilatorModel_Universal STATIC common/hw/universal_simulation_top.sv)
+verilate(VerilatorModel_Universal
     SOURCES ${VERILOG_SRC}
     TOP_MODULE universal_simulation_top
-    PREFIX VModel_Direct
+    PREFIX VModel_Universal
     TRACE
-    # Arguments passed to Verilator executable
-    VERILATOR_ARGS -Wno-fatal -GUSE_UART=0
+    # No parameters needed - both interfaces always synthesized, runtime MUX selection
+    VERILATOR_ARGS -Wno-fatal
 )
-target_include_directories(VerilatorModel_Direct PUBLIC common/hw)
-target_link_libraries(VerilatorModel_Direct PUBLIC Threads::Threads)
-
-# --- Model 2: UART Mode (USE_UART=1) ---
-add_library(VerilatorModel_UART STATIC common/hw/universal_simulation_top.sv)
-verilate(VerilatorModel_UART
-    SOURCES ${VERILOG_SRC}
-    TOP_MODULE universal_simulation_top
-    PREFIX VModel_UART
-    TRACE
-    # Arguments passed to Verilator executable
-    VERILATOR_ARGS -Wno-fatal -GUSE_UART=1
-)
-target_include_directories(VerilatorModel_UART PUBLIC common/hw)
-target_link_libraries(VerilatorModel_UART PUBLIC Threads::Threads)
+target_include_directories(VerilatorModel_Universal PUBLIC common/hw)
+target_include_directories(VerilatorModel_Universal PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/VerilatorModel_Universal.dir)
+target_link_libraries(VerilatorModel_Universal PUBLIC Threads::Threads)
 {% endif %}
 
 {% if use_custom %}
@@ -186,5 +174,9 @@ target_link_libraries({{ project_name }} ${HULOTTE_LIBS})
 
 {% if use_hw %}
 # Link Hardware Simulation
-target_link_libraries({{ project_name }} VerilatorModel_Direct VerilatorModel_UART Threads::Threads)
+target_link_libraries({{ project_name }} VerilatorModel_Universal Threads::Threads)
+target_include_directories({{ project_name }} PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/VerilatorModel_Universal.dir
+)
+add_dependencies({{ project_name }} VerilatorModel_Universal)
 {% endif %}

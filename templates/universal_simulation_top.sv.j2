@@ -1,14 +1,11 @@
-module universal_simulation_top #(
-    parameter bit USE_UART = 0 // 1 = Mode UART, 0 = Mode Direct (Bypass)
-)(
+module universal_simulation_top (
     input  logic       clk,
     input  logic       reset,
-    // use_uart removed (now a parameter)
+    input  logic       use_uart_select,  // Runtime selection: 1 = UART, 0 = Direct
     
     // ==========================================
     // INTERFACE 1 : MODE DIRECT (Bypass)
     // ==========================================
-    // Connecté directement au top_level quand use_uart = 0
     input  logic [7:0] direct_in_data,
     input  logic       direct_in_valid,
     output logic [7:0] direct_out_data,
@@ -17,12 +14,11 @@ module universal_simulation_top #(
     // ==========================================
     // INTERFACE 2 : MODE UART (Simulation PC)
     // ==========================================
-    // Simule l'envoi/réception série depuis un PC quand use_uart = 1
-    input  logic [7:0] pc_tx_byte,   // Octet que le PC envoie
-    input  logic       pc_tx_en,     // Valid envoi PC
-    output logic [7:0] pc_rx_byte,   // Octet reçu par le PC
-    output logic       pc_rx_valid,  // Valid réception PC
-    output logic       pc_uart_busy  // Si l'UART PC est occupé
+    input  logic [7:0] pc_tx_byte,
+    input  logic       pc_tx_en,
+    output logic [7:0] pc_rx_byte,
+    output logic       pc_rx_valid,
+    output logic       pc_uart_busy
 );
 
     // Signaux d'interface vers le User Core
@@ -56,105 +52,68 @@ module universal_simulation_top #(
     logic       fpga_fifo_empty;
 
     // -------------------------------------------------------------------------
-    // MUX INPUT (PC vs Direct) based on USE_UART parameter
+    // ALWAYS SYNTHESIZE BOTH PATHS, USE RUNTIME MUX FOR SELECTION
     // -------------------------------------------------------------------------
     
-    generate
-        if (USE_UART) begin : gen_uart_mode
-            // Mode UART : On connecte l'UART au Core
-            assign final_core_input_data  = uart_to_core_data;
-            assign final_core_input_valid = uart_to_core_valid;
-            
-            // Backpressure
-            assign core_out_ready = !fpga_fifo_full;
+    // UART PATH (always synthesized)
+    UART_fifoed_send #( 
+        .baudrate(10000000), 
+        .clock_frequency(100000000) 
+    ) inst_host_tx (
+        .clk_100MHz(clk),
+        .reset(reset),
+        .dat_en(pc_tx_en),
+        .dat(pc_tx_byte),
+        .TX(sim_cable_pc_to_fpga),
+        .fifo_full(host_fifo_full),
+        .fifo_afull(host_fifo_afull),
+        .fifo_empty(host_fifo_empty)
+    );
+    
+    UART_recv  #( 
+        .baudrate(10000000), 
+        .clock_frequency(100000000) 
+    ) inst_host_rx (
+        .clk(clk),
+        .reset(reset),
+        .rx(sim_cable_fpga_to_pc),
+        .dat(pc_rx_byte),
+        .dat_en(pc_rx_valid)
+    );
 
-            // Instanciation des modules UART (Seulement si USE_UART=1)
-            
-            // 1. Côté PC (Simulation Host)
-            UART_fifoed_send #( 
-                .baudrate(10000000), 
-                .clock_frequency(100000000) 
-            ) inst_host_tx (
-                .clk_100MHz(clk),
-                .reset(reset),
-                .dat_en(pc_tx_en),
-                .dat(pc_tx_byte),
-                .TX(sim_cable_pc_to_fpga),
-                .fifo_full(host_fifo_full),
-                .fifo_afull(host_fifo_afull),
-                .fifo_empty(host_fifo_empty)
-            );
-            
-            UART_recv  #( 
-                .baudrate(10000000), 
-                .clock_frequency(100000000) 
-            ) inst_host_rx (
-                .clk(clk),
-                .reset(reset),
-                .rx(sim_cable_fpga_to_pc),
-                .dat(pc_rx_byte),
-                .dat_en(pc_rx_valid)
-            );
+    assign pc_uart_busy = host_fifo_full;
 
-            assign pc_uart_busy = host_fifo_full;
+    UART_recv  #( 
+        .baudrate(10000000), 
+        .clock_frequency(100000000) 
+    ) inst_fpga_rx (
+        .clk(clk),
+        .reset(reset),
+        .rx(sim_cable_pc_to_fpga),
+        .dat(uart_to_core_data),
+        .dat_en(uart_to_core_valid)
+    );
 
-            // 2. Côté FPGA (Device)
-            UART_recv  #( 
-                .baudrate(10000000), 
-                .clock_frequency(100000000) 
-            ) inst_fpga_rx (
-                .clk(clk),
-                .reset(reset),
-                .rx(sim_cable_pc_to_fpga),
-                .dat(uart_to_core_data),
-                .dat_en(uart_to_core_valid)
-            );
+    UART_fifoed_send #( 
+        .baudrate(10000000), 
+        .clock_frequency(100000000)
+    ) inst_fpga_tx (
+        .clk_100MHz(clk),
+        .reset(reset),
+        .dat_en(core_to_uart_valid), 
+        .dat(core_to_uart_data),
+        .TX(sim_cable_fpga_to_pc),
+        .fifo_full(fpga_fifo_full),
+        .fifo_afull(fpga_fifo_afull),
+        .fifo_empty(fpga_fifo_empty)
+    );
 
-            UART_fifoed_send #( 
-                .baudrate(10000000), 
-                .clock_frequency(100000000)
-            ) inst_fpga_tx (
-                .clk_100MHz(clk),
-                .reset(reset),
-                .dat_en(core_to_uart_valid), 
-                .dat(core_to_uart_data),
-                .TX(sim_cable_fpga_to_pc),
-                .fifo_full(fpga_fifo_full),
-                .fifo_afull(fpga_fifo_afull),
-                .fifo_empty(fpga_fifo_empty)
-            );
-
-        end else begin : gen_direct_mode
-            // Mode Direct : On connecte l'entrée directe au Core
-            assign final_core_input_data  = direct_in_data;
-            assign final_core_input_valid = direct_in_valid;
-            
-            // Pas de backpressure en mode direct (ou toujours prêt)
-            assign core_out_ready = 1'b1;
-
-            // Signaux UART inutilisés
-            assign pc_uart_busy = 1'b0;
-            assign pc_rx_valid  = 1'b0;
-            assign pc_rx_byte   = 8'b0;
-            
-            // Pour éviter des warnings de "undriven"
-            assign host_fifo_full = 0;
-            assign host_fifo_afull = 0;
-            assign host_fifo_empty = 1;
-            assign uart_to_core_data = 0;
-            assign uart_to_core_valid = 0;
-            assign fpga_fifo_full = 0;
-            assign fpga_fifo_afull = 0;
-            assign fpga_fifo_empty = 1;
-
-        end
-    endgenerate
-
-    /*
-    // -------------------------------------------------------------------------
-    // ANCIENNE LOGIQUE (Supprimée)
-    // -------------------------------------------------------------------------
-    */
+    // RUNTIME MUX: Choose input path based on use_uart_select signal
+    assign final_core_input_data  = use_uart_select ? uart_to_core_data : direct_in_data;
+    assign final_core_input_valid = use_uart_select ? uart_to_core_valid : direct_in_valid;
+    
+    // RUNTIME MUX: Backpressure control based on selected path
+    assign core_out_ready = use_uart_select ? !fpga_fifo_full : 1'b1;
 
     // -------------------------------------------------------------------------
     // Instanciation du TOP LEVEL Utilisateur

@@ -4,7 +4,8 @@
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 #include <iostream>
-#include <streampu.hpp> 
+#include <streampu.hpp>
+#include "VModel_Universal.h"
 
 namespace spu
 {
@@ -12,25 +13,23 @@ namespace module
 {
 
 /**
- * Template class for Verilator simulation wrapper
- * VModelType: The specific Verilator generated class (e.g., VModel_UART, VModel_Direct)
+ * Non-templated Verilator simulation wrapper for VModel_Universal
+ * Supports runtime selection of Direct or UART mode via constructor parameter
  * 
  * Usage:
- *    module::VerilatorSimulation<VModel_Direct> sim_direct(frame_size, false, "trace_direct"); 
- *    module::VerilatorSimulation<VModel_UART>   sim_uart(frame_size, true, "trace_uart");
+ *    module::VerilatorSimulation sim_direct(frame_size, false, "trace_direct");
+ *    module::VerilatorSimulation sim_uart(frame_size, true, "trace_uart");
  */
-template <typename VModelType>
 class VerilatorSimulation : public Stateful {
 
 private:
-    VModelType* dut = nullptr; // Pointer to the generated Verilator model specific to this template
+    VModel_Universal* dut = nullptr; // Pointer to the Verilator generated model
     VerilatedVcdC* m_trace = nullptr;
     VerilatedContext* m_context = nullptr; // Own Verilator context for isolation
     vluint64_t sim_time = 0;
     
     int frame_size;
-    bool use_uart;   // Runtime flag to know which interface signals to use/monitor
-
+    bool use_uart_mode; // Runtime mode selection
     bool is_reset_time() { return (sim_time < 7); }
     bool is_rising_edge() { return (sim_time % 2 == 0); }
     bool is_falling_edge() { return (sim_time % 2 != 0); }
@@ -38,17 +37,17 @@ private:
 public:
     // **Constructor**
     // frame_size: Size of data frame to process
-    // use_uart_mode: If true, the wrapper logic will drive UART signals (pc_tx/pc_rx).
+    // use_uart_mode: True = UART mode, False = Direct mode
     // trace_name: Custom name for the VCD output simulation file. If empty, a default name is generated.
     VerilatorSimulation(int frame_size, bool use_uart_mode = false, const std::string& trace_name = "") 
-    : Stateful(), frame_size(frame_size), use_uart(use_uart_mode) 
+    : Stateful(), frame_size(frame_size), use_uart_mode(use_uart_mode) 
     {
         // 1. Create a dedicated context for this simulation instance
         m_context = new VerilatedContext;
         m_context->traceEverOn(true); // Enable tracing on this context
         
         // 2. Instantiate the model using this context
-        dut = new VModelType{m_context}; 
+        dut = new VModel_Universal{m_context}; 
 
         m_trace = new VerilatedVcdC;
         dut->trace(m_trace, 5);
@@ -56,7 +55,7 @@ public:
         // Trace file naming logic
         std::string final_trace_name;
         if (trace_name.empty()) {
-            std::string mode_str = use_uart ? "UART" : "Direct";
+            std::string mode_str = use_uart_mode ? "UART" : "Direct";
             final_trace_name = "waveform_" + mode_str + "_" + std::to_string((uintptr_t)this) + ".vcd";
         } else {
             final_trace_name = trace_name + ".vcd";
@@ -65,7 +64,7 @@ public:
         m_trace->open(final_trace_name.c_str());
         
         // Module naming logic
-        std::string mode_short_str = use_uart ? "_UART" : "_Direct";
+        std::string mode_short_str = std::string("_") + (use_uart_mode ? "UART" : "Direct");
         this->set_name("VerilatorSimulation" + mode_short_str);
         if(!trace_name.empty()){
              this->set_short_name(trace_name); 
@@ -78,7 +77,7 @@ public:
         auto output = create_socket_out<int>(t, "output", frame_size);
 
         this->create_codelet(t, [input, output](Module &m, runtime::Task &t, const size_t frame_id) -> int {
-            static_cast<VerilatorSimulation<VModelType>&>(m).simulate(
+            static_cast<VerilatorSimulation&>(m).simulate(
                 static_cast<int*>(t[input].get_dataptr()),
                 static_cast<int*>(t[output].get_dataptr()),
                 frame_id
@@ -110,14 +109,13 @@ protected:
         
         while(output_data_count < frame_size) {
             
+            // --- RUNTIME MODE SELECTION ---
+            dut->use_uart_select = use_uart_mode ? 1 : 0;
+            
             // --- TIME & RESET HANDLING ---
             if(is_reset_time()){
                 dut->reset = 1;
                 // Initialize inputs
-                // Note: These signals MUST exist in VModelType.
-                // If compiled without UART, pc_tx_en technically doesn't go anywhere inside,
-                // but Verilator usually keeps top-level ports even if unconnected inside.
-                // However, to be safe, we assume the Universal Top has these ports always.
                 dut->direct_in_valid = 0;
                 dut->pc_tx_en = 0; 
             }
@@ -132,7 +130,7 @@ protected:
                 bool data_valid = false;
                 int  data_val = 0;
                 
-                if (use_uart) {
+                if (use_uart_mode) {
                     // Logic for UART mode reading
                     data_valid = dut->pc_rx_valid;
                     data_val   = dut->pc_rx_byte;
@@ -155,7 +153,7 @@ protected:
                     // We have data to send
                     int val_to_send = input[input_data_count];
                     
-                    if (use_uart) {
+                    if (use_uart_mode) {
                         // UART: Must check busy signal
                         if (!dut->pc_uart_busy) {
                             dut->pc_tx_en = 1;
