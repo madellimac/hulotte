@@ -235,8 +235,9 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
         custom_dir = src_dir / "custom"
         custom_dir.mkdir(exist_ok=True)
         
-        header = render_template("MyModule.hpp.j2", {})
-        impl = render_template("MyModule.cpp.j2", {})
+        context = {"module_name": "MyModule"}
+        header = render_template("MyModule.hpp.j2", context)
+        impl = render_template("MyModule.cpp.j2", context)
         
         with open(custom_dir / "MyModule.hpp", "w") as f:
             f.write(header)

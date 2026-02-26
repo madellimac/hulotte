@@ -153,10 +153,9 @@ target_link_libraries(VerilatorModel_Universal PUBLIC Threads::Threads)
 {% endif %}
 
 {% if use_custom %}
-# Custom module
-add_library({{ project_name }}_custom STATIC
-    src/custom/MyModule.cpp
-)
+# Custom modules - automatically find all .cpp files in src/custom/
+file(GLOB CUSTOM_SOURCES "src/custom/*.cpp")
+add_library({{ project_name }}_custom STATIC ${CUSTOM_SOURCES})
 target_include_directories({{ project_name }}_custom PUBLIC src)
 target_link_libraries({{ project_name }}_custom PUBLIC ${HULOTTE_LIBS})
 

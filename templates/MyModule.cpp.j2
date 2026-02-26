@@ -1,14 +1,14 @@
-#include "MyModule.hpp"
+#include "{{ module_name }}.hpp"
 #include <algorithm>
 #include <iostream>
 
 using namespace spu;
 using namespace spu::module;
 
-MyModule::MyModule(const int n_elmts)
+{{ module_name }}::{{ module_name }}(const int n_elmts)
 : Stateful(), n_elmts(n_elmts)
 {
-    const std::string name = "MyModule";
+    const std::string name = "{{ module_name }}";
     this->set_name(name);
     this->set_short_name(name);
 
@@ -18,7 +18,7 @@ MyModule::MyModule(const int n_elmts)
 
     this->create_codelet(t, [p_in, p_out](Module &m, runtime::Task &t, const size_t frame_id) -> int
     {
-        auto &mod = static_cast<MyModule&>(m);
+        auto &mod = static_cast<{{ module_name }}&>(m);
         mod._process(static_cast<int*>(t[p_in].get_dataptr()),
                      static_cast<int*>(t[p_out].get_dataptr()),
                      frame_id);
@@ -26,16 +26,16 @@ MyModule::MyModule(const int n_elmts)
     });
 }
 
-MyModule* MyModule::clone() const
+{{ module_name }}* {{ module_name }}::clone() const
 {
-    auto m = new MyModule(*this);
+    auto m = new {{ module_name }}(*this);
     m->deep_copy(*this);
     return m;
 }
 
-void MyModule::_process(const int* in, int* out, const int frame_id)
+void {{ module_name }}::_process(const int* in, int* out, const int frame_id)
 {
     // Minimal example: copy input to output and print trace
-    // std::cout << "MyModule processing frame " << frame_id << std::endl;
+    // std::cout << "{{ module_name }} processing frame " << frame_id << std::endl;
     std::copy(in, in + this->n_elmts, out);
 }
