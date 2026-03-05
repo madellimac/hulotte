@@ -5,192 +5,180 @@
 #include <verilated_vcd_c.h>
 #include <iostream>
 #include <streampu.hpp>
-#include "VModel_Universal.h"
+#include <memory>
+#include <mutex>
 
 namespace spu
 {
 namespace module
 {
 
+// Global mutex to protect Verilator initialization from race conditions
+// When Source_random and Finalizer modules are created before VerilatorSimulation,
+// there's a race condition during Verilator object creation. This mutex serializes
+// the initialization.
+static std::mutex g_verilator_init_mutex;
+
 /**
- * Non-templated Verilator simulation wrapper for VModel_Universal
- * Supports runtime selection of Direct or UART mode via constructor parameter
+ * Templated Verilator simulation wrapper for generic hardware blocks
+ * Works with any hardware block that implements the standard ready/valid interface
+ * 
+ * THREAD SAFETY:
+ * - Uses global mutex to protect Verilator initialization from race conditions
+ * - Handles StreamPU module cloning with _is_cloning flag to prevent recursive task creation
  * 
  * Usage:
- *    module::VerilatorSimulation sim_direct(frame_size, false, "trace_direct");
- *    module::VerilatorSimulation sim_uart(frame_size, true, "trace_uart");
+ *    #include "VModel_increment.h"
+ *    auto sim = std::make_unique<VerilatorSimulation<VModel_increment>>(frame_size);
  */
+template<typename VModelT>
 class VerilatorSimulation : public Stateful {
 
 private:
-    VModel_Universal* dut = nullptr; // Pointer to the Verilator generated model
+    VModelT* dut = nullptr;
     VerilatedVcdC* m_trace = nullptr;
-    VerilatedContext* m_context = nullptr; // Own Verilator context for isolation
+    VerilatedContext* m_context = nullptr;
     vluint64_t sim_time = 0;
-    
     int frame_size;
-    bool use_uart_mode; // Runtime mode selection
-    bool is_reset_time() { return (sim_time < 7); }
+    std::string trace_name;
+    bool _is_cloning = false;  // Flag to prevent task creation during cloning
+    
+    bool is_reset_time() { return (sim_time < 3); }  // Reset for first 3 cycles instead of 7
     bool is_rising_edge() { return (sim_time % 2 == 0); }
     bool is_falling_edge() { return (sim_time % 2 != 0); }
 
 public:
-    // **Constructor**
-    // frame_size: Size of data frame to process
-    // use_uart_mode: True = UART mode, False = Direct mode
-    // trace_name: Custom name for the VCD output simulation file. If empty, a default name is generated.
-    VerilatorSimulation(int frame_size, bool use_uart_mode = false, const std::string& trace_name = "") 
-    : Stateful(), frame_size(frame_size), use_uart_mode(use_uart_mode) 
+    VModelT* inst;
+
+    // Main constructor - delegates to internal constructor
+    VerilatorSimulation(int frame_size, const std::string& trace_name = "", bool enable_trace = true) 
+    : VerilatorSimulation(frame_size, trace_name, enable_trace, false) {}
+    
+    // Internal constructor that allows control of _is_cloning
+    // Pass is_cloning=true when called from clone() to skip task creation
+    VerilatorSimulation(int frame_size, const std::string& trace_name, bool enable_trace, bool is_cloning) 
+    : Stateful(), frame_size(frame_size), trace_name(trace_name), _is_cloning(is_cloning)
     {
-        // 1. Create a dedicated context for this simulation instance
-        m_context = new VerilatedContext;
-        m_context->traceEverOn(true); // Enable tracing on this context
-        
-        // 2. Instantiate the model using this context
-        dut = new VModel_Universal{m_context}; 
-
-        m_trace = new VerilatedVcdC;
-        dut->trace(m_trace, 5);
-        
-        // Trace file naming logic
-        std::string final_trace_name;
-        if (trace_name.empty()) {
-            std::string mode_str = use_uart_mode ? "UART" : "Direct";
-            final_trace_name = "waveform_" + mode_str + "_" + std::to_string((uintptr_t)this) + ".vcd";
-        } else {
-            final_trace_name = trace_name + ".vcd";
-        }
-
-        m_trace->open(final_trace_name.c_str());
-        
-        // Module naming logic
-        std::string mode_short_str = std::string("_") + (use_uart_mode ? "UART" : "Direct");
-        this->set_name("VerilatorSimulation" + mode_short_str);
-        if(!trace_name.empty()){
-             this->set_short_name(trace_name); 
-        } else {
-             this->set_short_name("VerilatorSim");
+        // Protect Verilator initialization from race conditions
+        // This is necessary when VerilatorSimulation is created after Source_random
+        {
+            std::lock_guard<std::mutex> lock(g_verilator_init_mutex);
+            
+            // CRITICAL: Each hardware block gets its own dedicated VerilatedContext
+            // This eliminates "same model already added" errors when multiple blocks coexist
+            m_context = new VerilatedContext;
+            m_context->traceEverOn(true);
+            
+            // Create the DUT in its dedicated context
+            dut = new VModelT{m_context};
+            inst = dut;
         }
         
-        auto &t = create_task("simulate");
-        auto input  = create_socket_in<int>(t, "input", frame_size);
-        auto output = create_socket_out<int>(t, "output", frame_size);
+        // Only create trace file for the main instance, not for clones
+        if (enable_trace) {
+            std::string final_trace_name = trace_name.empty() ? 
+                std::string(typeid(VModelT).name()) + ".vcd" : trace_name + ".vcd";
+            
+            // Open VCD file manually before creating trace object
+            m_trace = new VerilatedVcdC;
+            
+            // Try to open file - if it fails, disable tracing
+            try {
+                dut->trace(m_trace, 99);
+                m_trace->open(final_trace_name.c_str());
+            } catch (...) {
+                // If opening fails, clean up and disable tracing
+                delete m_trace;
+                m_trace = nullptr;
+            }
+        } else {
+            m_trace = nullptr;
+        }
+        
+        this->set_name(typeid(VModelT).name());
+        this->set_short_name(typeid(VModelT).name());
+        
+        // CRITICAL: Skip task creation if this is being called during clonability test
+        // StreamPU's is_clonable() creates a temporary clone - we must not recursively create tasks
+        if (!_is_cloning) {
+            auto& t = this->create_task("simulate");
+            auto p_in  = this->create_socket_in<int32_t>(t, "input", frame_size);
+            auto p_out = this->create_socket_out<int32_t>(t, "output", frame_size);
+            
+            this->create_codelet(t, [p_in, p_out, this](Module &m, runtime::Task &t, const size_t frame_id) -> int {
+                auto& mod = static_cast<VerilatorSimulation<VModelT>&>(m);
+                auto* in_data = static_cast<int32_t*>(t[p_in].get_dataptr());
+                auto* out_data = static_cast<int32_t*>(t[p_out].get_dataptr());
+                mod.process_frame(in_data, out_data);
+                return runtime::status_t::SUCCESS;
+            });
+        }
+    }
 
-        this->create_codelet(t, [input, output](Module &m, runtime::Task &t, const size_t frame_id) -> int {
-            static_cast<VerilatorSimulation&>(m).simulate(
-                static_cast<int*>(t[input].get_dataptr()),
-                static_cast<int*>(t[output].get_dataptr()),
-                frame_id
-            );
-            return 0;
-        });
+    void process_frame(int32_t* in_data, int32_t* out_data) {
+        // Phase 1: Reset (isolated phase)
+        for (int rst = 0; rst < 2; rst++) {
+            dut->clk = (sim_time % 2);  // Toggle clock
+            dut->reset = 1;
+            dut->in_valid = 0;
+            dut->out_ready = 0;
+            dut->in_data = 0;
+            dut->eval();
+            sim_time++;
+            if (m_trace) {
+                m_trace->dump(sim_time);
+                m_trace->flush();
+            }
+        }
+        
+        // Phase 2: Data processing
+        dut->reset = 0;
+        
+        for (int i = 0; i < frame_size; i++) {
+            dut->clk = (sim_time % 2);  // Toggle clock
+            // Control signals
+            if (is_rising_edge()) {
+                dut->in_data = in_data[i];
+                dut->in_valid = 1;
+                dut->out_ready = 1;
+            } else {
+                dut->in_valid = 0;
+                dut->out_ready = 0;
+            }
+            
+            dut->eval();
+            
+            // Capture output when valid
+            if (dut->out_valid) {
+                out_data[i] = dut->out_data;
+            }
+            
+            sim_time++;
+            if (m_trace) {
+                m_trace->dump(sim_time);
+                m_trace->flush();
+            }
+        }
     }
 
     virtual ~VerilatorSimulation() {
-        if (m_trace) {
-            m_trace->close();
-            delete m_trace;
-        }
-        if (dut) {
-            delete dut;
-        }
-        if (m_context) {
-            delete m_context;
-        }
+        if (m_trace) { m_trace->close(); delete m_trace; }
+        if (dut) delete dut;
+        // Clean up dedicated Verilator context
+        if (m_context) delete m_context;
     }
 
-protected:
-    void simulate(const int* input, int *output, const int frame_id) {
-        int input_data_count = 0;
-        int output_data_count = 0;
-
-        enum t_state { wait, shift_in, shift_out, over };
-        t_state c_state, n_state = wait;
-        
-        while(output_data_count < frame_size) {
-            
-            // --- RUNTIME MODE SELECTION ---
-            dut->use_uart_select = use_uart_mode ? 1 : 0;
-            
-            // --- TIME & RESET HANDLING ---
-            if(is_reset_time()){
-                dut->reset = 1;
-                // Initialize inputs
-                dut->direct_in_valid = 0;
-                dut->pc_tx_en = 0; 
-            }
-            else if(is_rising_edge()){
-                dut->reset = 0;       
-                c_state = n_state;     
-            }
-            else if(is_falling_edge()){
-                dut->reset = 0;
-                
-                // --- OUTPUT READING ---
-                bool data_valid = false;
-                int  data_val = 0;
-                
-                if (use_uart_mode) {
-                    // Logic for UART mode reading
-                    data_valid = dut->pc_rx_valid;
-                    data_val   = dut->pc_rx_byte;
-                } else {
-                    // Logic for Direct mode reading
-                    data_valid = dut->direct_out_valid;
-                    data_val   = dut->direct_out_data;
-                }
-
-                if (data_valid) {
-                    if (output_data_count < frame_size) {
-                        output[output_data_count++] = data_val;
-                    }
-                }
-
-                // --- INPUT WRITING ---
-                bool sent_success = false;
-                
-                if (input_data_count < frame_size) {
-                    // We have data to send
-                    int val_to_send = input[input_data_count];
-                    
-                    if (use_uart_mode) {
-                        // UART: Must check busy signal
-                        if (!dut->pc_uart_busy) {
-                            dut->pc_tx_en = 1;
-                            dut->pc_tx_byte = val_to_send;
-                            sent_success = true;
-                        } else {
-                             dut->pc_tx_en = 0;
-                        }
-                    } else {
-                        // Direct: Assume always ready (or check ready if you add it later)
-                        dut->direct_in_valid = 1;
-                        dut->direct_in_data = val_to_send;
-                        sent_success = true; 
-                    }
-                } else {
-                    // No more data
-                    dut->pc_tx_en = 0;
-                    dut->direct_in_valid = 0;
-                }
-                
-                if (sent_success) {
-                       input_data_count++;
-                }
-
-            } // End falling edge logic
-            
-            // Toggle clock
-            dut->clk ^= 1;
-            dut->eval();
-            
-            if (m_trace) m_trace->dump(sim_time);
-            sim_time++;
-        }
+    virtual VerilatorSimulation* clone() const override {
+        // Clone without creating trace file to avoid duplicate VCD files
+        // Pass true for is_cloning to skip task creation during the clone constructor
+        auto cloned = new VerilatorSimulation(frame_size, "", false, true);
+        cloned->deep_copy(*this);
+        cloned->_is_cloning = false; // Unmark after cloning is complete
+        return cloned;
     }
 };
 
-} // namespace module
-} // namespace spu
+}
+}
 
-#endif // VERILATORSIMULATION_HPP
+#endif

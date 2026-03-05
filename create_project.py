@@ -182,9 +182,10 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
         hw_dir = src_dir / "hw"
         hw_dir.mkdir(exist_ok=True)
         
-        with open(hw_dir / "Top_Level.sv", "w") as f:
-            f.write(render_template("Top_Level.sv.j2", {}))
-        print(f"✓ Created src/hw/Top_Level.sv")
+        # Only create PassThrough block (Top_Level.sv removed - it's unused and causes Verilator conflicts)
+        with open(hw_dir / "PassThrough.sv", "w") as f:
+            f.write(render_template("PassThrough.sv", {}))
+        print(f"✓ Created src/hw/PassThrough.sv")
         
         copy_common_files(project_dir, hulotte_dir)
 

@@ -1,0 +1,66 @@
+/*
+ * @file {{ module_name }}.sv
+ * @brief Hardware block with standardized ready/valid handshake interface
+ * 
+ * All hardware blocks implement this interface:
+ * - Input:  in_data[31:0], in_valid, expects in_ready
+ * - Output: out_data[31:0], out_valid, expects out_ready
+ */
+
+module {{ module_name }} (
+    input  logic        clk,
+    input  logic        reset,
+    
+    // Input interface (connected to previous stage)
+    input  logic [31:0] in_data,
+    input  logic        in_valid,
+    output logic        in_ready,
+    
+    // Output interface (connected to next stage)
+    output logic [31:0] out_data,
+    output logic        out_valid,
+    input  logic        out_ready
+);
+
+    // ========================================
+    // TODO: Implement your custom logic here
+    // ========================================
+    // 
+    // Example (simple pass-through):
+    //   always_ff @(posedge clk) begin
+    //       if (reset) begin
+    //           out_valid <= 1'b0;
+    //           out_data  <= 32'b0;
+    //           in_ready  <= 1'b0;
+    //       end else begin
+    //           in_ready <= out_ready;  // Flow control
+    //           if (in_valid && in_ready) begin
+    //               out_data  <= in_data;  // Your transformation here
+    //               out_valid <= 1'b1;
+    //           end else if (out_ready) begin
+    //               out_valid <= 1'b0;
+    //           end
+    //       end
+    //   end
+    //
+    // ========================================
+
+    // Simple pass-through for now (replace with your logic)
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            out_valid <= 1'b0;
+            out_data  <= 32'b0;
+            in_ready  <= 1'b0;
+        end else begin
+            in_ready <= out_ready;
+            
+            if (in_valid && in_ready) begin
+                out_data  <= in_data;
+                out_valid <= 1'b1;
+            end else if (out_ready) begin
+                out_valid <= 1'b0;
+            end
+        end
+    end
+
+endmodule

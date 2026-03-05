@@ -123,11 +123,11 @@ def main():
     print("(Automatically compiles all .cpp files in src/custom/)\n")
     
     print("1. UPDATE main.cpp (only step):")
-    print(f"   Add include at top:")
+    print(f"   //Add include at top:")
     print(f'       #include "custom/{module_name}.hpp"\n')
-    print("   Add instantiation in '// 1. Modules creation':")
+    print("   //Add instantiation in '// 1. Modules creation':")
     print(f'       module::{module_name} {module_name.lower()}(n_elmts);\n')
-    print("   Add socket binding in '// 2. Sockets binding':")
+    print("   //Add socket binding in '// 2. Sockets binding':")
     print(f'       my_module ["process::out"] = {module_name.lower()} ["process::in"];')
     print(f"       {module_name.lower()} [\"process::out\"] = finalizer [\"finalize::in\"];\n")
     

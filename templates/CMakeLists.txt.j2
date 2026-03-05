@@ -125,57 +125,63 @@ add_definitions(-DHULOTTE_USE_STREAMPU)
 {% endif %}
 
 {% if use_hw %}
-# Hardware Module (Verilog)
-set(VERILOG_SRC 
-    common/hw/universal_simulation_top.sv
+# Hardware Modules - automatically discover all .sv files in src/hw/
+# Each module MUST implement the standard ready/valid interface
+file(GLOB HW_BLOCKS "src/hw/*.sv")
+
+# Common Verilog sources (UART utilities, etc.)
+set(HW_COMMON_SRC
     common/hw/UART_fifoed_send_V1.sv
     common/hw/uart_recv.sv
-    src/hw/Top_Level.sv 
 )
 
-# -------------------------------------------------------------
-# 1. Generate Verilator Models for each configuration
-# -------------------------------------------------------------
+# Store list of hardware models to link later
+set(HW_MODELS_LIST)
 
-# --- Universal Model (always synthesizes both Direct and UART, runtime selection via signal) ---
-add_library(VerilatorModel_Universal STATIC common/hw/universal_simulation_top.sv)
-verilate(VerilatorModel_Universal
-    SOURCES ${VERILOG_SRC}
-    TOP_MODULE universal_simulation_top
-    PREFIX VModel_Universal
-    TRACE
-    # No parameters needed - both interfaces always synthesized, runtime MUX selection
-    VERILATOR_ARGS -Wno-fatal
-)
-target_include_directories(VerilatorModel_Universal PUBLIC common/hw)
-target_include_directories(VerilatorModel_Universal PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/VerilatorModel_Universal.dir)
-target_link_libraries(VerilatorModel_Universal PUBLIC Threads::Threads)
+# Generate a Verilator model for each hardware block
+foreach(HW_BLOCK ${HW_BLOCKS})
+    # Extract module name from filename (e.g., increment.sv -> increment)
+    get_filename_component(BLOCK_NAME ${HW_BLOCK} NAME_WE)
+    
+    # Create Verilator library for this block
+    add_library(VerilatorModel_${BLOCK_NAME} STATIC ${HW_BLOCK})
+    verilate(VerilatorModel_${BLOCK_NAME}
+        SOURCES ${HW_COMMON_SRC} ${HW_BLOCK}
+        TOP_MODULE ${BLOCK_NAME}
+        PREFIX VModel_${BLOCK_NAME}
+        TRACE
+        VERILATOR_ARGS -Wno-fatal
+    )
+    
+    # Include directories for generated Verilator headers
+    target_include_directories(VerilatorModel_${BLOCK_NAME} PUBLIC common/hw)
+    target_include_directories(VerilatorModel_${BLOCK_NAME} PUBLIC 
+        ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/VerilatorModel_${BLOCK_NAME}.dir)
+    target_link_libraries(VerilatorModel_${BLOCK_NAME} PUBLIC Threads::Threads)
+    
+    # Add to list for linking after executable is created
+    list(APPEND HW_MODELS_LIST VerilatorModel_${BLOCK_NAME})
+endforeach()
 {% endif %}
 
-{% if use_custom %}
-# Custom modules - automatically find all .cpp files in src/custom/
+# Custom modules - automatically discover all .cpp files in src/custom/ (glob pattern)
 file(GLOB CUSTOM_SOURCES "src/custom/*.cpp")
-add_library({{ project_name }}_custom STATIC ${CUSTOM_SOURCES})
-target_include_directories({{ project_name }}_custom PUBLIC src)
-target_link_libraries({{ project_name }}_custom PUBLIC ${HULOTTE_LIBS})
+if(CUSTOM_SOURCES)
+    add_library({{ project_name }}_custom STATIC ${CUSTOM_SOURCES})
+    target_include_directories({{ project_name }}_custom PUBLIC src)
+    target_link_libraries({{ project_name }}_custom PUBLIC ${HULOTTE_LIBS})
+    set(CUSTOM_MODULE_LIBS {{ project_name }}_custom)
+else()
+    set(CUSTOM_MODULE_LIBS "")
+endif()
 
-{% if use_streampu or use_aff3ct %}
 # Main executable
 add_executable({{ project_name }} src/main.cpp)
-target_link_libraries({{ project_name }} {{ project_name }}_custom)
-{% endif %}
-
-{% else %}
-# Main executable
-add_executable({{ project_name }} src/main.cpp)
-target_link_libraries({{ project_name }} ${HULOTTE_LIBS})
-{% endif %}
+target_link_libraries({{ project_name }} ${HULOTTE_LIBS} ${CUSTOM_MODULE_LIBS})
 
 {% if use_hw %}
-# Link Hardware Simulation
-target_link_libraries({{ project_name }} VerilatorModel_Universal Threads::Threads)
-target_include_directories({{ project_name }} PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/VerilatorModel_Universal.dir
-)
-add_dependencies({{ project_name }} VerilatorModel_Universal)
+# Link all discovered hardware blocks
+if(DEFINED HW_MODELS_LIST)
+    target_link_libraries({{ project_name }} ${HW_MODELS_LIST} Threads::Threads)
+endif()
 {% endif %}
