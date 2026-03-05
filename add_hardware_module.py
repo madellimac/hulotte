@@ -104,7 +104,8 @@ def add_instantiation_to_main(project_dir, module_name):
         return False
     
     # Instantiation code with TRACE DISABLED by default
-    instantiation = f'    auto hw_{module_name} = std::make_unique<VerilatorSimulation<VModel_{module_name}>>(K, "trace_{module_name}", false);\n'
+    # Using stack allocation (no make_unique) for simpler access
+    instantiation = f'    module::VerilatorSimulation<VModel_{module_name}> hw_{module_name}(K, "trace_{module_name}", false);\n'
     
     with open(main_cpp, 'r') as f:
         content = f.read()
