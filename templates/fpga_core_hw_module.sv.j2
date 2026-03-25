@@ -1,0 +1,90 @@
+/*
+ * @file {{ module_name }}Core.sv
+ * @brief FPGA-synthesizable UART core: uart_rx → custom_hw (ready/valid) → uart_tx.
+ *
+ * This module is designed to be:
+ *   - Synthesized and deployed directly on FPGA with real UART pins.
+ *   - Instantiated inside {{ module_name }}.sv for Verilator simulation,
+ *     with UART pins connected to software-side host transceivers.
+ *
+ * Interface:
+ *   clk     : system clock
+ *   reset   : synchronous active-high reset
+ *   uart_rx : UART receive pin (connect to physical RX or sim wire)
+ *   uart_tx : UART transmit pin (connect to physical TX or sim wire)
+ *
+ * Parameters:
+ *   BAUDRATE         : UART baud rate (Hz)
+ *   CLOCK_FREQUENCY  : System clock frequency (Hz)
+ */
+
+module {{ module_name }}Core #(
+    parameter int BAUDRATE        = 10000000,
+    parameter int CLOCK_FREQUENCY = 100000000
+)(
+    input  logic clk,
+    input  logic reset,
+
+    input  logic uart_rx,
+    output logic uart_tx
+);
+
+    // -------------------------------------------------------------------------
+    // FPGA UART RX: recover bytes from the UART line
+    // -------------------------------------------------------------------------
+    logic [7:0] uart_to_core_data;
+    logic       uart_to_core_valid;
+
+    UART_recv #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) fpga_uart_rx (
+        .clk(clk),
+        .reset(reset),
+        .rx(uart_rx),
+        .dat(uart_to_core_data),
+        .dat_en(uart_to_core_valid)
+    );
+
+    // -------------------------------------------------------------------------
+    // Custom hardware core (ready/valid register-slice)
+    // Replace the pass-through assignment with your own transform.
+    // -------------------------------------------------------------------------
+    logic [7:0] core_out_data;
+    logic       core_out_valid;
+    logic       core_out_ready;
+
+    logic fpga_fifo_full, fpga_fifo_afull, fpga_fifo_empty;
+
+    assign core_out_ready = !fpga_fifo_full;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            core_out_valid <= 1'b0;
+            core_out_data  <= '0;
+        end else if (!core_out_valid || core_out_ready) begin
+            core_out_valid <= uart_to_core_valid;
+            if (uart_to_core_valid)
+                // TODO: replace this with your custom transform
+                core_out_data <= uart_to_core_data;
+        end
+    end
+
+    // -------------------------------------------------------------------------
+    // FPGA UART TX: send transformed bytes back on the UART line
+    // -------------------------------------------------------------------------
+    UART_fifoed_send #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) fpga_uart_tx (
+        .clk_100MHz(clk),
+        .reset(reset),
+        .dat_en(core_out_valid && core_out_ready),
+        .dat(core_out_data),
+        .TX(uart_tx),
+        .fifo_empty(fpga_fifo_empty),
+        .fifo_afull(fpga_fifo_afull),
+        .fifo_full(fpga_fifo_full)
+    );
+
+endmodule

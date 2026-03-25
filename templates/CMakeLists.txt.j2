@@ -126,8 +126,11 @@ add_definitions(-DHULOTTE_USE_STREAMPU)
 
 {% if use_hw %}
 # Hardware Modules - automatically discover all .sv files in src/hw/
-# Each module MUST implement the standard ready/valid interface
+# Each module MUST implement the standard ready/valid interface.
+# Files ending in 'Core.sv' are sub-modules (not Verilator top-levels) and are
+# excluded from this list — they are included as extra sources by their wrapper.
 file(GLOB HW_BLOCKS "src/hw/*.sv")
+list(FILTER HW_BLOCKS EXCLUDE REGEX ".*Core\.sv$")
 
 # Common Verilog sources (UART utilities, etc.)
 set(HW_COMMON_SRC
@@ -142,11 +145,20 @@ set(HW_MODELS_LIST)
 foreach(HW_BLOCK ${HW_BLOCKS})
     # Extract module name from filename (e.g., increment.sv -> increment)
     get_filename_component(BLOCK_NAME ${HW_BLOCK} NAME_WE)
-    
+    get_filename_component(BLOCK_DIR ${HW_BLOCK} DIRECTORY)
+
+    # Include companion *Core.sv if it exists (UART-wrapped modules)
+    set(CORE_FILE "${BLOCK_DIR}/${BLOCK_NAME}Core.sv")
+    if(EXISTS "${CORE_FILE}")
+        set(EXTRA_SOURCES ${CORE_FILE})
+    else()
+        set(EXTRA_SOURCES "")
+    endif()
+
     # Create Verilator library for this block
     add_library(VerilatorModel_${BLOCK_NAME} STATIC ${HW_BLOCK})
     verilate(VerilatorModel_${BLOCK_NAME}
-        SOURCES ${HW_COMMON_SRC} ${HW_BLOCK}
+        SOURCES ${HW_COMMON_SRC} ${HW_BLOCK} ${EXTRA_SOURCES}
         TOP_MODULE ${BLOCK_NAME}
         PREFIX VModel_${BLOCK_NAME}
         TRACE

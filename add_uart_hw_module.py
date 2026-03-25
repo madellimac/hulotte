@@ -2,11 +2,17 @@
 """
 Add a new UART-wrapped hardware block to an existing Hulotte project.
 
-Each generated block implements:
-  host_uart_tx => fpga_uart_rx => custom_core(ready/valid) => fpga_uart_tx => host_uart_rx
+Two files are generated per module:
 
-The generated module keeps the same external 32-bit ready/valid interface as the
-other Hulotte hardware blocks so it can be wrapped by VerilatorSimulation.
+  <ModuleName>Core.sv   — FPGA-synthesizable core
+                          Interface: clk, reset, uart_rx (in), uart_tx (out)
+                          Contains: UART_recv -> custom_hw (ready/valid) -> UART_fifoed_send
+                          This file is the one to target for FPGA synthesis.
+
+  <ModuleName>.sv       — Verilator simulation wrapper
+                          Interface: 32-bit ready/valid (same as other Hulotte blocks)
+                          Wraps <ModuleName>Core between host-side UART transceivers
+                          connected by simulation wires.
 
 Usage:
     python3 add_uart_hw_module.py <project_path> <module_name>
@@ -46,13 +52,23 @@ def create_uart_hardware_module(project_dir, module_name, template_dir):
     hw_dir.mkdir(parents=True, exist_ok=True)
 
     context = {"module_name": module_name}
-    sv_content = render_template("uart_hw_module.sv.j2", context, template_dir)
 
-    sv_path = hw_dir / f"{module_name}.sv"
-    with open(sv_path, "w") as file_desc:
-        file_desc.write(sv_content)
-    print(f"✓ Created {sv_path.relative_to(project_dir)}")
-    return sv_path
+    # Generate the FPGA-synthesizable core
+    core_name = f"{module_name}Core"
+    core_content = render_template("fpga_core_hw_module.sv.j2", context, template_dir)
+    core_path = hw_dir / f"{core_name}.sv"
+    with open(core_path, "w") as file_desc:
+        file_desc.write(core_content)
+    print(f"✓ Created {core_path.relative_to(project_dir)}")
+
+    # Generate the Verilator simulation wrapper
+    wrapper_content = render_template("uart_hw_module.sv.j2", context, template_dir)
+    wrapper_path = hw_dir / f"{module_name}.sv"
+    with open(wrapper_path, "w") as file_desc:
+        file_desc.write(wrapper_content)
+    print(f"✓ Created {wrapper_path.relative_to(project_dir)}")
+
+    return wrapper_path
 
 
 def main():
@@ -97,26 +113,31 @@ def main():
     print("UART HARDWARE BLOCK CREATED SUCCESSFULLY!")
     print(f"{'='*70}\n")
 
-    print("✨ FILES CREATED/UPDATED:")
-    print(f"   • src/hw/{module_name}.sv (UART-wrapped hardware implementation)")
-    print("   • src/main.cpp (not modified by design)\n")
+    print("✨ FILES CREATED:")
+    print(f"   • src/hw/{module_name}Core.sv    (FPGA-synthesizable core: uart_rx → hw → uart_tx)")
+    print(f"   • src/hw/{module_name}.sv        (Verilator simulation wrapper: rv ↔ UART ↔ Core ↔ UART ↔ rv)\n")
 
     print("📝 NEXT STEPS:\n")
     print("1. IMPLEMENT YOUR CORE LOGIC")
-    print(f"   Edit src/hw/{module_name}.sv and replace the assignment inside")
-    print("   the custom_core section with your transformation.\n")
+    print(f"   Edit src/hw/{module_name}Core.sv and replace the TODO assignment")
+    print("   inside the custom hardware core section with your own transform.")
+    print(f"   The simulation wrapper src/hw/{module_name}.sv does NOT need to be modified.\n")
 
-    print("2. CONNECT THE BLOCK MANUALLY")
+    print("2. CONNECT THE BLOCK MANUALLY IN MAIN.CPP")
     print("   Edit src/main.cpp and add:")
     print(f'     - #include "VModel_{module_name}.h"')
-    print(f'     - auto hw_{module_name.lower()} = std::make_unique<VerilatorSimulation<VModel_{module_name}>>(n_elmts, "trace_{module_name.lower()}", false);')
-    print(f'     - socket bindings for hw_{module_name.lower()} in the pipeline\n')
+    print(f'     - auto hw = std::make_unique<VerilatorSimulation<VModel_{module_name}>>(n_elmts, "trace_{module_name.lower()}", false);')
+    print( '     - socket bindings for hw in the pipeline\n')
 
-    print("3. REBUILD")
+    print("3. FOR FPGA SYNTHESIS")
+    print(f"   Synthesize src/hw/{module_name}Core.sv.")
+    print("   Connect uart_rx/uart_tx to the physical UART pins on the FPGA.\n")
+
+    print("4. REBUILD")
     print(f"   cd {project_dir}")
     print("   rm -rf build && ./build.sh\n")
 
-    print("4. TEST")
+    print("5. TEST")
     print("   cd build && ./build_executable_name\n")
 
 
