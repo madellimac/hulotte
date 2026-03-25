@@ -136,7 +136,9 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
     else:
         output_dir = "."
 
-    hulotte_dir = str(Path.cwd().resolve())
+    # Use the installation directory of create_project.py, not the current working directory.
+    # This allows generating projects from anywhere (e.g., when script is in PATH).
+    hulotte_dir = str(Path(__file__).resolve().parent)
     
     # StreamPU is mandatory
     use_streampu = True
@@ -187,7 +189,10 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
             f.write(render_template("PassThrough.sv", {}))
         print(f"✓ Created src/hw/PassThrough.sv")
         
-        copy_common_files(project_dir, hulotte_dir)
+        if not copy_common_files(project_dir, hulotte_dir):
+            print("ERROR: Failed to copy common hardware/software support files.")
+            print(f"       Expected source: {Path(hulotte_dir) / 'Common' / 'streampu'}")
+            return False
 
         # Generate Universal Simulation Wrapper from Templates
         common_hw_dir = project_dir / "common" / "hw"
