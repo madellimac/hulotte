@@ -1,0 +1,169 @@
+/*
+ * @file {{ module_name }}.sv
+ * @brief UART-wrapped frame-based hardware block template.
+ *
+ * Implemented data path:
+ *   host_uart_tx -> fpga_uart_rx -> custom_core(ready/valid) -> fpga_uart_tx -> host_uart_rx
+ *
+ * External interface remains ready/valid on 32-bit words.
+ * Current UART path transmits only the low byte and zero-extends on output.
+ */
+
+module {{ module_name }} #(
+    parameter int FRAME_SIZE = 16,
+    parameter int BAUDRATE = 10000000,
+    parameter int CLOCK_FREQUENCY = 100000000
+)(
+    input  logic        clk,
+    input  logic        reset,
+
+    // External ready/valid input
+    input  logic [31:0] in_data,
+    input  logic        in_valid,
+    output logic        in_ready,
+
+    // External ready/valid output
+    output logic [31:0] out_data,
+    output logic        out_valid,
+    input  logic        out_ready
+);
+
+    localparam int CNT_W = $clog2(FRAME_SIZE + 1);
+    typedef logic [CNT_W-1:0] cnt_t;
+    localparam cnt_t FRAME_LAST = cnt_t'(FRAME_SIZE - 1);
+
+    // -------------------------------------------------------------------------
+    // UART links and status
+    // -------------------------------------------------------------------------
+    logic sim_cable_host_to_fpga;
+    logic sim_cable_fpga_to_host;
+
+    logic host_fifo_full, host_fifo_afull, host_fifo_empty;
+    logic fpga_fifo_full, fpga_fifo_afull, fpga_fifo_empty;
+
+    logic [7:0] uart_to_core_data;
+    logic       uart_to_core_valid;
+
+    logic [7:0] host_rx_data;
+    logic       host_rx_valid;
+
+    // Host UART TX: feed external input bytes to UART line
+    logic host_tx_fire;
+    assign in_ready = !reset && !host_fifo_full;
+    assign host_tx_fire = in_valid && in_ready;
+
+    UART_fifoed_send #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) host_uart_tx (
+        .clk_100MHz(clk),
+        .reset(reset),
+        .dat_en(host_tx_fire),
+        .dat(in_data[7:0]),
+        .TX(sim_cable_host_to_fpga),
+        .fifo_empty(host_fifo_empty),
+        .fifo_afull(host_fifo_afull),
+        .fifo_full(host_fifo_full)
+    );
+
+    // FPGA UART RX: recover bytes from host line
+    UART_recv #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) fpga_uart_rx (
+        .clk(clk),
+        .reset(reset),
+        .rx(sim_cable_host_to_fpga),
+        .dat(uart_to_core_data),
+        .dat_en(uart_to_core_valid)
+    );
+
+    // -------------------------------------------------------------------------
+    // Custom hardware core (ready/valid)
+    // Replace the transformation below with your own logic.
+    // -------------------------------------------------------------------------
+    logic [31:0] core_out_data;
+    logic        core_out_valid;
+    logic        core_out_ready;
+
+    assign core_out_ready = !fpga_fifo_full;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            core_out_valid <= 1'b0;
+            core_out_data  <= '0;
+        end else if (!core_out_valid || core_out_ready) begin
+            core_out_valid <= uart_to_core_valid;
+            if (uart_to_core_valid)
+                // Replace this assignment with your custom transform if needed.
+                core_out_data <= {24'b0, uart_to_core_data};
+        end
+    end
+
+    // -------------------------------------------------------------------------
+    // FPGA UART TX + Host UART RX
+    // -------------------------------------------------------------------------
+    UART_fifoed_send #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) fpga_uart_tx (
+        .clk_100MHz(clk),
+        .reset(reset),
+        .dat_en(core_out_valid && core_out_ready),
+        .dat(core_out_data[7:0]),
+        .TX(sim_cable_fpga_to_host),
+        .fifo_empty(fpga_fifo_empty),
+        .fifo_afull(fpga_fifo_afull),
+        .fifo_full(fpga_fifo_full)
+    );
+
+    UART_recv #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) host_uart_rx (
+        .clk(clk),
+        .reset(reset),
+        .rx(sim_cable_fpga_to_host),
+        .dat(host_rx_data),
+        .dat_en(host_rx_valid)
+    );
+
+    // External output register-slice to honor out_ready backpressure
+    logic [31:0] out_hold_data;
+    logic        out_hold_valid;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            out_hold_valid <= 1'b0;
+            out_hold_data  <= '0;
+        end else if (!out_hold_valid || out_ready) begin
+            out_hold_valid <= host_rx_valid;
+            if (host_rx_valid)
+                out_hold_data <= {24'b0, host_rx_data};
+        end
+    end
+
+    assign out_data  = out_hold_data;
+    assign out_valid = out_hold_valid;
+
+    // Optional frame counters for debug
+    cnt_t cnt_in, cnt_out;
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            cnt_in <= '0;
+        end else if (host_tx_fire) begin
+            if (cnt_in == FRAME_LAST) cnt_in <= '0;
+            else cnt_in <= cnt_in + 1'b1;
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            cnt_out <= '0;
+        end else if (out_valid && out_ready) begin
+            if (cnt_out == FRAME_LAST) cnt_out <= '0;
+            else cnt_out <= cnt_out + 1'b1;
+        end
+    end
+
+endmodule
