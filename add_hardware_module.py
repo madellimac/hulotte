@@ -62,73 +62,6 @@ def create_hardware_module(project_dir, module_name, template_dir):
     return sv_path
 
 
-def add_include_to_main(project_dir, module_name):
-    """Add #include directive to main.cpp"""
-    main_cpp = project_dir / "src" / "main.cpp"
-    if not main_cpp.exists():
-        return False
-    
-    include_line = f'#include "VModel_{module_name}.h"'
-    
-    with open(main_cpp, 'r') as f:
-        content = f.read()
-    
-    # Check if already included
-    if include_line in content:
-        return True
-    
-    # Find the position after #include "VModel_PassThrough.h"
-    insert_pos = content.find('#include "VModel_PassThrough.h"')
-    if insert_pos != -1:
-        # Find end of line
-        eol = content.find('\n', insert_pos)
-        if eol != -1:
-            content = content[:eol+1] + include_line + '\n' + content[eol+1:]
-    else:
-        # Fallback: insert after last #include
-        last_include = content.rfind('#include')
-        if last_include != -1:
-            eol = content.find('\n', last_include)
-            if eol != -1:
-                content = content[:eol+1] + include_line + '\n' + content[eol+1:]
-    
-    with open(main_cpp, 'w') as f:
-        f.write(content)
-    return True
-
-
-def add_instantiation_to_main(project_dir, module_name):
-    """Add hardware block instantiation to main.cpp"""
-    main_cpp = project_dir / "src" / "main.cpp"
-    if not main_cpp.exists():
-        return False
-    
-    # Instantiation code with TRACE DISABLED by default
-    # Using stack allocation (no make_unique) for simpler access
-    instantiation = f'    module::VerilatorSimulation<VModel_{module_name}> hw_{module_name}(K, "trace_{module_name}", false);\n'
-    
-    with open(main_cpp, 'r') as f:
-        content = f.read()
-    
-    # Check if already instantiated
-    if f'hw_{module_name}' in content:
-        return True
-    
-    # Find insertion point: after "// 1. Modules creation" section, before "// 2. Sockets binding"
-    modules_section = content.find('// 1. Modules creation')
-    sockets_section = content.find('// 2. Sockets binding')
-    
-    if modules_section != -1 and sockets_section != -1:
-        # Find last module creation line before sockets section
-        last_module_line = content.rfind('\n', modules_section, sockets_section)
-        if last_module_line != -1:
-            content = content[:last_module_line+1] + instantiation + content[last_module_line+1:]
-    
-    with open(main_cpp, 'w') as f:
-        f.write(content)
-    return True
-
-
 def main():
     if len(sys.argv) < 3:
         print("Usage: python3 add_hardware_module.py <project_path> <module_name>")
@@ -177,10 +110,7 @@ def main():
     
     print("✨ FILES CREATED/UPDATED:")
     print(f"   • src/hw/{module_name}.sv (hardware implementation)")
-    if add_include_to_main(project_dir, module_name):
-        print(f"   • src/main.cpp (added #include)")
-    if add_instantiation_to_main(project_dir, module_name):
-        print(f"   • src/main.cpp (added instantiation with trace DISABLED)\n")
+    print("   • src/main.cpp (not modified by design)\n")
     
     print("⚠️  IMPORTANT - VERILATOR TRACE LIMITATION:")
     print("   Only ONE hardware module can have tracing enabled at a time due to Verilator.")
@@ -198,10 +128,11 @@ def main():
     print("      Input:  clk, reset, in_data[31:0], in_valid, out_ready")
     print("      Output: in_ready, out_data[31:0], out_valid\n")
     
-    print("2. CONNECT THE BLOCK (if main.cpp was generated, update bindings)")
-    print("   Edit src/main.cpp and add socket bindings in '// 2. Sockets binding':")
-    print(f"       source[\"generate::out_data\"] = (*hw_{module_name})[\"simulate::input\"];")
-    print(f"       (*hw_{module_name})[\"simulate::output\"] = finalizer[\"finalize::in\"];\n")
+    print("2. CONNECT THE BLOCK MANUALLY")
+    print("   Edit src/main.cpp and add:")
+    print(f'     - #include "VModel_{module_name}.h"')
+    print(f'     - auto hw_{module_name.lower()} = std::make_unique<VerilatorSimulation<VModel_{module_name}>>(n_elmts, "trace_{module_name.lower()}", false);')
+    print(f'     - socket bindings for hw_{module_name.lower()} in the pipeline\n')
     
     print("3. REBUILD")
     print(f"   cd {project_dir}")

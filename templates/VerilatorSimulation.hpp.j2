@@ -116,48 +116,77 @@ public:
     }
 
     void process_frame(int32_t* in_data, int32_t* out_data) {
-        // Phase 1: Reset (isolated phase)
-        for (int rst = 0; rst < 2; rst++) {
-            dut->clk = (sim_time % 2);  // Toggle clock
-            dut->reset = 1;
-            dut->in_valid = 0;
-            dut->out_ready = 0;
-            dut->in_data = 0;
-            dut->eval();
-            sim_time++;
-            if (m_trace) {
-                m_trace->dump(sim_time);
-                m_trace->flush();
-            }
-        }
-        
-        // Phase 2: Data processing
-        dut->reset = 0;
-        
-        for (int i = 0; i < frame_size; i++) {
-            dut->clk = (sim_time % 2);  // Toggle clock
-            // Control signals
-            if (is_rising_edge()) {
-                dut->in_data = in_data[i];
-                dut->in_valid = 1;
-                dut->out_ready = 1;
-            } else {
+        int input_data_count  = 0;
+        int output_data_count = 0;
+
+        // Producer FSM states (BUSY: waiting to send, VALID: data sent)
+        enum producer_state_t { PRODUCER_BUSY = 0, PRODUCER_VALID = 1 };
+        producer_state_t producer_current = PRODUCER_BUSY;
+        producer_state_t producer_next    = PRODUCER_BUSY;
+
+        // Consumer FSM states (READY: waiting for output, BUSY: just received)
+        enum consumer_state_t { CONSUMER_READY = 0, CONSUMER_BUSY = 1 };
+        consumer_state_t consumer_current = CONSUMER_READY;
+        consumer_state_t consumer_next    = CONSUMER_READY;
+
+        while (output_data_count < frame_size) {
+
+            if (is_reset_time()) {
+                dut->reset    = 1;
                 dut->in_valid = 0;
-                dut->out_ready = 0;
+                dut->out_ready = 1;
+                producer_current = PRODUCER_BUSY;
+                producer_next    = PRODUCER_BUSY;
+                consumer_current = CONSUMER_READY;
+                consumer_next    = CONSUMER_READY;
             }
-            
+            else if (is_rising_edge()) {
+                dut->reset = 0;
+                // Since FSM now updates 'producer/consumer_current' directly in falling edge,
+                // we don't need to copy '_next' state here anymore.
+            }
+            else if (is_falling_edge()) {
+                dut->reset = 0;
+
+                // ===== PRODUCER ALWAYS TRYING =====
+                // Check if previous transaction succeeded
+                // If we were trying to send (current_state was active) AND dut said ready
+                if (producer_current == PRODUCER_VALID && dut->in_ready) {
+                    input_data_count++;
+                }
+
+                if (input_data_count < frame_size) {
+                    dut->in_valid = 1;
+                    dut->in_data  = in_data[input_data_count];
+                    producer_current = PRODUCER_VALID; // Mark that we are trying to send
+                } else {
+                    dut->in_valid = 0;
+                    dut->in_data  = 0;
+                    producer_current = PRODUCER_BUSY; // Nothing to send
+                }
+
+                // ===== CONSUMER CONSTANT READY =====
+                // Always ready as long as we have buffer space
+                if (output_data_count < frame_size) {
+                    dut->out_ready = 1;
+
+                    if (dut->out_valid) {
+                        out_data[output_data_count++] = dut->out_data;
+                    }
+                } else {
+                    dut->out_ready = 0;
+                }
+            }
+
+            dut->clk ^= 1;
             dut->eval();
-            
-            // Capture output when valid
-            if (dut->out_valid) {
-                out_data[i] = dut->out_data;
-            }
-            
-            sim_time++;
+
             if (m_trace) {
                 m_trace->dump(sim_time);
                 m_trace->flush();
             }
+
+            sim_time++;
         }
     }
 

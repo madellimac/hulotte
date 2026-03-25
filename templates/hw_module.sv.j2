@@ -1,13 +1,15 @@
 /*
  * @file {{ module_name }}.sv
- * @brief Hardware block with standardized ready/valid handshake interface
- * 
- * All hardware blocks implement this interface:
- * - Input:  in_data[31:0], in_valid, expects in_ready
- * - Output: out_data[31:0], out_valid, expects out_ready
+ * @brief Frame-based hardware block template with robust ready/valid handshake
+ *
+ * This template matches PassThrough behavior:
+ * - no data loss under backpressure
+ * - up to 1 sample/cycle throughput when downstream is ready
  */
 
-module {{ module_name }} (
+module {{ module_name }} #(
+    parameter int FRAME_SIZE = 16
+)(
     input  logic        clk,
     input  logic        reset,
     
@@ -22,44 +24,63 @@ module {{ module_name }} (
     input  logic        out_ready
 );
 
-    // ========================================
-    // TODO: Implement your custom logic here
-    // ========================================
-    // 
-    // Example (simple pass-through):
-    //   always_ff @(posedge clk) begin
-    //       if (reset) begin
-    //           out_valid <= 1'b0;
-    //           out_data  <= 32'b0;
-    //           in_ready  <= 1'b0;
-    //       end else begin
-    //           in_ready <= out_ready;  // Flow control
-    //           if (in_valid && in_ready) begin
-    //               out_data  <= in_data;  // Your transformation here
-    //               out_valid <= 1'b1;
-    //           end else if (out_ready) begin
-    //               out_valid <= 1'b0;
-    //           end
-    //       end
-    //   end
-    //
-    // ========================================
+    localparam int CNT_W = $clog2(FRAME_SIZE + 1);
+    typedef logic [CNT_W-1:0] cnt_t;
+    localparam cnt_t FRAME_LAST = cnt_t'(FRAME_SIZE - 1);
 
-    // Simple pass-through for now (replace with your logic)
+    // Input stage
+    cnt_t cnt_in;
+    logic input_fire;
+
+    // Canonical register-slice handshake
+    assign in_ready = !reset && (!out_valid || out_ready);
+    assign input_fire = in_valid && in_ready;
+
     always_ff @(posedge clk) begin
         if (reset) begin
-            out_valid <= 1'b0;
-            out_data  <= 32'b0;
-            in_ready  <= 1'b0;
-        end else begin
-            in_ready <= out_ready;
-            
-            if (in_valid && in_ready) begin
-                out_data  <= in_data;
-                out_valid <= 1'b1;
-            end else if (out_ready) begin
-                out_valid <= 1'b0;
-            end
+            cnt_in <= '0;
+        end else if (input_fire) begin
+            if (cnt_in == FRAME_LAST)
+                cnt_in <= '0;
+            else
+                cnt_in <= cnt_in + 1;
+        end
+    end
+
+    // Processing/storage stage
+    logic [31:0] pipe_data;
+    logic        pipe_valid;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            pipe_valid <= 1'b0;
+            pipe_data  <= '0;
+        end else if (in_ready) begin
+            // Replace this assignment with your custom transformation if needed
+            // Example: pipe_data <= in_data + 1;
+            pipe_valid <= in_valid;
+            if (in_valid)
+                pipe_data <= in_data;
+        end
+        // else: hold while stalled
+    end
+
+    // Output stage
+    cnt_t cnt_out;
+    logic output_fire;
+
+    assign out_data = pipe_data;
+    assign out_valid = pipe_valid;
+    assign output_fire = out_valid && out_ready;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            cnt_out <= '0;
+        end else if (output_fire) begin
+            if (cnt_out == FRAME_LAST)
+                cnt_out <= '0;
+            else
+                cnt_out <= cnt_out + 1;
         end
     end
 

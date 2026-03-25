@@ -59,9 +59,8 @@ int main(int argc, char** argv)
     module::MyModule         my_module(K);
     {% endif %}
     {% if use_hw %}
-    // NOTE: Only ONE Verilator instance can have tracing enabled due to Verilator context limitations
-    // When adding new hardware modules with add_hardware_module.py, they are created with trace DISABLED
-    module::VerilatorSimulation<VModel_PassThrough> verilator_sim(K, "trace_main", true);
+    // NOTE: Keep a single traced HW instance by default.
+    auto hw_passthrough = std::make_unique<VerilatorSimulation<VModel_PassThrough>>(K, "trace_main", true);
     {% endif %}
 
     // 2. Sockets binding
@@ -70,13 +69,13 @@ int main(int argc, char** argv)
     
     // Chain construction
     {% if use_hw %}
-    // Chain: Source -> PassThrough -> (Custom Module) -> Encoder
-    source ["generate::out_data"] = verilator_sim["simulate::input"];
+    // Chain: Source -> HW pipeline -> (Custom Module) -> Encoder
+    source ["generate::out_data"] = (*hw_passthrough)["simulate::input"];
     {% if use_custom %}
-    verilator_sim["simulate::output"] = my_module["process::in"];
+    (*hw_passthrough)["simulate::output"] = my_module["process::in"];
     my_module["process::out"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% else %}
-    verilator_sim["simulate::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
+    (*hw_passthrough)["simulate::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% endif %}
     {% else %}
     // Chain: Source -> (Custom Module) -> Encoder
@@ -101,7 +100,7 @@ int main(int argc, char** argv)
     module::MyModule         my_module(n_elmts);
     {% endif %}
     {% if use_hw %}
-    // NOTE: Only ONE Verilator instance can have tracing enabled due to Verilator context limitations
+    // NOTE: Keep a single traced HW instance by default.
     auto hw_passthrough = std::make_unique<VerilatorSimulation<VModel_PassThrough>>(n_elmts, "trace_main", true);
     
     // Additional hardware blocks can be added using add_hardware_module.py
@@ -113,7 +112,7 @@ int main(int argc, char** argv)
     
     // 2. Sockets binding
     {% if use_hw %}
-    // Default chain: Source -> PassThrough -> (Custom Module) -> Finalizer
+    // Default chain: Source -> HW pipeline -> (Custom Module) -> Finalizer
     source  ["generate::out_data"] = (*hw_passthrough) ["simulate::input"];
     {% if use_custom %}
     (*hw_passthrough) ["simulate::output"] = my_module ["process::in"];
