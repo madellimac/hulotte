@@ -25,6 +25,7 @@ int main(int argc, char** argv)
 {% if use_custom %}
 #include "custom/MyModule.hpp"
 {% endif %}
+#include "Comparator.hpp"
 
 using namespace spu;
 using namespace spu::module;
@@ -35,25 +36,25 @@ int main(int argc, char** argv)
 
 {% if use_aff3ct %}
     // 1. Modules creation
-    
+
     // RS(7, 5) => t=1, m=3. Bits 21 -> 15.
     // NOTE: This uses aff3ct B_32 (32-bit integer) template instantiation.
     const int N_rs = 7;  // Symbols
     const int K_rs = 5;  // Symbols
     const int m = 3;       // Bits per symbol
-    const int t = (N_rs - K_rs) / 2; // Correction 
+    const int t = (N_rs - K_rs) / 2; // Correction
     const int N = N_rs * m; // Total bits
     const int K = K_rs * m; // Info bits
 
     module::Source_random<> source(K);
-    module::Finalizer    <> finalizer(K);
-    
+    Comparator               comparator(K);
+
     // Create RS Polynomial Generator (needed for RS construction)
     aff3ct::tools::RS_polynomial_generator poly(N_rs, t);
-    
+
     // Create Encoder and Decoder
     aff3ct::module::Encoder_RS<>     encoder(K_rs, N_rs, poly);
-    aff3ct::module::Decoder_RS_std<> decoder(K_rs, N_rs, poly);    
+    aff3ct::module::Decoder_RS_std<> decoder(K_rs, N_rs, poly);
 
     {% if use_custom %}
     module::MyModule         my_module(K);
@@ -66,11 +67,13 @@ int main(int argc, char** argv)
     // 2. Sockets binding
     using namespace aff3ct::module;
     using namespace aff3ct::tools;
-    
-    // Chain construction
+
+    // in_ref: source directly to comparator (reference path)
+    source[src::tsk::generate][(int)src::sck::generate::out_data] = comparator["check::in_ref"];
+
+    // in_got: source -> [hw ->] [custom ->] encoder -> decoder -> comparator
     {% if use_hw %}
-    // Chain: Source -> HW pipeline -> (Custom Module) -> Encoder
-    source ["generate::out_data"] = (*hw_passthrough)["simulate::input"];
+    source[src::tsk::generate][(int)src::sck::generate::out_data] = (*hw_passthrough)["simulate::input"];
     {% if use_custom %}
     (*hw_passthrough)["simulate::output"] = my_module["process::in"];
     my_module["process::out"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
@@ -78,70 +81,63 @@ int main(int argc, char** argv)
     (*hw_passthrough)["simulate::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% endif %}
     {% else %}
-    // Chain: Source -> (Custom Module) -> Encoder
-    source   [src::tsk::generate][(int)src::sck::generate::out_data] = 
     {% if use_custom %}
-    my_module ["process::in"];
-    my_module ["process::out"] = 
+    source[src::tsk::generate][(int)src::sck::generate::out_data] = my_module["process::in"];
+    my_module["process::out"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
+    {% else %}
+    source[src::tsk::generate][(int)src::sck::generate::out_data] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% endif %}
-    encoder  [enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% endif %}
 
-    encoder  [enc::tsk::encode][(int)enc::sck::encode::X_N]        = decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
-    decoder  [dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K] = finalizer["finalize::in"];
+    encoder[enc::tsk::encode][(int)enc::sck::encode::X_N]           = decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
+    decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::V_K] = comparator["check::in_got"];
 
 {% else %}
     // 1. Modules creation
-    
+
     const int n_elmts = 16;
     module::Source_random<int> source(n_elmts);
-    module::Finalizer  <int> finalizer(n_elmts);
+    Comparator                  comparator(n_elmts);
     {% if use_custom %}
     module::MyModule         my_module(n_elmts);
     {% endif %}
     {% if use_hw %}
     // NOTE: Keep a single traced HW instance by default.
     auto hw_passthrough = std::make_unique<VerilatorSimulation<VModel_PassThrough>>(n_elmts, "trace_main", true);
-    
+
     // Additional hardware blocks can be added using add_hardware_module.py
     // They are created with trace DISABLED to avoid Verilator context conflicts
     // Example (add via script):
     //   #include "VModel_increment.h"
     //   auto hw_increment = std::make_unique<VerilatorSimulation<VModel_increment>>(n_elmts, "trace_increment", false);
     {% endif %}
-    
+
     // 2. Sockets binding
+    // in_ref: source directly to comparator (reference -- unchanged data)
+    source["generate::out_data"] = comparator["check::in_ref"];
+
     {% if use_hw %}
-    // Default chain: Source -> HW pipeline -> (Custom Module) -> Finalizer
-    source  ["generate::out_data"] = (*hw_passthrough) ["simulate::input"];
+    // in_got: source -> [hw pipeline ->] [custom ->] comparator
+    source["generate::out_data"] = (*hw_passthrough)["simulate::input"];
     {% if use_custom %}
-    (*hw_passthrough) ["simulate::output"] = my_module ["process::in"];
-    my_module ["process::out"] = finalizer ["finalize::in"];
+    (*hw_passthrough)["simulate::output"] = my_module["process::in"];
+    my_module["process::out"] = comparator["check::in_got"];
     {% else %}
-    (*hw_passthrough) ["simulate::output"] = finalizer ["finalize::in"];
+    (*hw_passthrough)["simulate::output"] = comparator["check::in_got"];
     {% endif %}
-    
-    // Additional hardware blocks can be connected here
-    // Example: source["generate::out_data"] = (*hw_passthrough) ["simulate::input"];
-    //          (*hw_passthrough) ["simulate::output"] = (*hw_increment) ["simulate::input"];
-    //          (*hw_increment) ["simulate::output"] = finalizer["finalize::in"];
     {% elif use_custom %}
-    // Chain: Source -> Custom Module -> Finalizer
-    source  ["generate::out_data"] = my_module ["process::in"];
-    my_module ["process::out"] = finalizer ["finalize::in"];
+    // in_got: source -> custom module -> comparator
+    source["generate::out_data"] = my_module["process::in"];
+    my_module["process::out"]    = comparator["check::in_got"];
     {% else %}
-    // Chain: Source -> Finalizer
-    source  ["generate::out_data"] = finalizer["finalize::in"];
+    // in_got: source directly (smoke test -- always passes)
+    source["generate::out_data"] = comparator["check::in_got"];
     {% endif %}
 {% endif %}
 
     // 3. Sequence creation
     std::vector<runtime::Task*> first_tasks;
-{% if use_aff3ct %}
     first_tasks.push_back(&source("generate"));
-{% else %}
-    first_tasks.push_back(&source("generate"));
-{% endif %}
 
     runtime::Sequence sequence(first_tasks);
 
@@ -155,7 +151,7 @@ int main(int argc, char** argv)
 
     // 4. Execution
     std::cout << "Processing..." << std::endl;
-    
+
     // Export dot file for visualization
     std::ofstream file("graph.dot");
     sequence.export_dot(file);
@@ -165,9 +161,16 @@ int main(int argc, char** argv)
         sequence.exec_seq(); // Run 1 frame at a time
 
     // 5. Stats
-    std::cout << "\\nEnd of execution." << std::endl;
+    std::cout << "\nEnd of execution." << std::endl;
     tools::Stats::show(sequence.get_tasks_per_types(), true, false);
 
-    return 0;
+    // 6. Non-regression check
+    if (comparator.has_errors())
+        std::cerr << "[FAIL] " << comparator.get_n_errors() << " error(s) detected over "
+                  << comparator.get_frame_count() << " frame(s)." << std::endl;
+    else
+        std::cout << "[PASS] 0 errors over " << comparator.get_frame_count() << " frame(s)." << std::endl;
+
+    return comparator.has_errors() ? 1 : 0;
 }
 {% endif %}

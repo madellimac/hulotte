@@ -106,10 +106,13 @@ if(CPPTRACE_LIBRARY)
     add_definitions(-DSPU_STACKTRACE)
 endif()
 
-{% if use_hw %}
-# Hardware Simulation Includes
-include_directories(common/hw)
+{% if use_streampu %}
+# SW support files (Comparator, etc.) — always available for StreamPU projects
 include_directories(common/sw)
+{% endif %}
+{% if use_hw %}
+# Hardware simulation includes
+include_directories(common/hw)
 {% endif %}
 
 {% if use_streampu %}

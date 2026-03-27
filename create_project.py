@@ -114,6 +114,22 @@ def copy_common_files(project_dir, hulotte_dir):
         return False
 
 
+def copy_common_sw_files(project_dir, hulotte_dir):
+    """Copy only Common SW support files (e.g. Comparator.hpp) to project.
+    Used for StreamPU projects that don't need the full HW common directory."""
+    src_sw = Path(hulotte_dir) / "Common" / "streampu" / "sw"
+    dst_sw = Path(project_dir) / "common" / "sw"
+
+    if src_sw.exists():
+        dst_sw.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src_sw, dst_sw, dirs_exist_ok=True)
+        print(f"✓ Copied common/sw support files")
+        return True
+    else:
+        print(f"WARNING: Common/sw directory not found at {src_sw}")
+        return False
+
+
 def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=None, use_custom=None, use_hw=None, streampu_root=None, aff3ct_root=None):
     """Main project generation function."""
     print_ascii_art()
@@ -195,6 +211,7 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
             return False
 
         # Generate Universal Simulation Wrapper from Templates
+        # (overwrites the legacy non-template version copied from Common/)
         common_hw_dir = project_dir / "common" / "hw"
         common_hw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -203,8 +220,12 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
 
         with open(common_hw_dir / "VerilatorSimulation.hpp", "w") as f:
              f.write(render_template("VerilatorSimulation.hpp.j2", {}))
-        
+
         print(f"✓ Generated Verification environment (Universal Top & Verilator wrapper)")
+
+    elif use_streampu:
+        # Non-HW StreamPU projects still need common/sw for Comparator.hpp, etc.
+        copy_common_sw_files(project_dir, hulotte_dir)
 
     # Create CMakeLists.txt
     cmake_context = {

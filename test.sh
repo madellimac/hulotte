@@ -71,13 +71,54 @@ for aff3ct in "no-aff3ct" "aff3ct"; do
 done
 
 echo "=========================================="
+echo "=========================================="
 echo "Terminé. 8 projets créés dans '$OUTPUT_DIR/'"
 
-cd test_projects/test_minimal;./build.sh;cd build;./test_minimal;cd ../../..;ls;pwd
-cd test_projects/test_hw;./build.sh;cd build;./test_hw;cd ../../..;ls
-cd test_projects/test_custom;./build.sh;cd build;./test_custom;cd ../../..;ls
-cd test_projects/test_custom_hw;./build.sh;cd build;./test_custom_hw;cd ../../..;ls
-cd test_projects/test_aff3ct;./build.sh;cd build;./test_aff3ct;cd ../../..;ls
-cd test_projects/test_aff3ct_hw;./build.sh;cd build;./test_aff3ct_hw;cd ../../..;ls
-cd test_projects/test_aff3ct_custom;./build.sh;cd build;./test_aff3ct_custom;cd ../../..;ls
-cd test_projects/test_aff3ct_custom_hw;./build.sh;cd build;./test_aff3ct_custom_hw;cd ../../..;ls
+# ============================================================
+# Build and run each project -- check exit codes for PASS/FAIL
+# ============================================================
+
+FAILED=0
+
+run_test() {
+    local name=$1
+    echo ""
+    echo "--- Testing: $name ---"
+    cd "$OUTPUT_DIR/$name" || { echo "[FAIL BUILD] $name: directory not found"; FAILED=1; return; }
+
+    if ! ./build.sh > build_log.txt 2>&1; then
+        echo "[FAIL BUILD] $name: build failed (see $OUTPUT_DIR/$name/build_log.txt)"
+        FAILED=1
+        cd - > /dev/null
+        return
+    fi
+    echo "  Build OK"
+
+    if (cd build && ./"$name" > run_log.txt 2>&1); then
+        echo "  [PASS] $name"
+    else
+        echo "  [FAIL RUN] $name (see $OUTPUT_DIR/$name/build/run_log.txt)"
+        FAILED=1
+    fi
+
+    cd - > /dev/null
+}
+
+run_test test_minimal
+run_test test_hw
+run_test test_custom
+run_test test_custom_hw
+run_test test_aff3ct
+run_test test_aff3ct_hw
+run_test test_aff3ct_custom
+run_test test_aff3ct_custom_hw
+
+echo ""
+echo "=========================================="
+if [ "$FAILED" -eq 0 ]; then
+    echo "ALL TESTS PASSED"
+else
+    echo "SOME TESTS FAILED -- see logs above"
+fi
+echo "=========================================="
+exit $FAILED
