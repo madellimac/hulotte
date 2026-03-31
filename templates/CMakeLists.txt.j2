@@ -188,6 +188,31 @@ foreach(HW_BLOCK ${HW_BLOCKS})
 endforeach()
 {% endif %}
 
+{% if use_streampu %}
+# Common StreamPU support modules copied to common/sw
+file(GLOB COMMON_SW_SOURCES "common/sw/*.cpp")
+if(NOT Boost_FOUND)
+    list(FILTER COMMON_SW_SOURCES EXCLUDE REGEX ".*SerialPort\\.cpp$")
+endif()
+
+if(COMMON_SW_SOURCES)
+    add_library({{ project_name }}_common STATIC ${COMMON_SW_SOURCES})
+    target_include_directories({{ project_name }}_common PUBLIC common/sw)
+    target_link_libraries({{ project_name }}_common PUBLIC ${HULOTTE_LIBS})
+
+    if(Boost_FOUND)
+        target_include_directories({{ project_name }}_common PUBLIC ${Boost_INCLUDE_DIRS})
+        target_link_libraries({{ project_name }}_common PUBLIC ${Boost_LIBRARIES})
+    endif()
+
+    set(COMMON_MODULE_LIBS {{ project_name }}_common)
+else()
+    set(COMMON_MODULE_LIBS "")
+endif()
+{% else %}
+set(COMMON_MODULE_LIBS "")
+{% endif %}
+
 # Custom modules - automatically discover all .cpp files in src/custom/ (glob pattern)
 file(GLOB CUSTOM_SOURCES "src/custom/*.cpp")
 if(CUSTOM_SOURCES)
@@ -207,7 +232,7 @@ if(Boost_FOUND)
     target_include_directories({{ project_name }} PRIVATE ${Boost_INCLUDE_DIRS})
 endif()
 
-target_link_libraries({{ project_name }} ${HULOTTE_LIBS} ${CUSTOM_MODULE_LIBS})
+target_link_libraries({{ project_name }} ${HULOTTE_LIBS} ${COMMON_MODULE_LIBS} ${CUSTOM_MODULE_LIBS})
 
 {% if use_hw %}
 # Link all discovered hardware blocks
