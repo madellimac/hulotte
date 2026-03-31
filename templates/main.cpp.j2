@@ -10,7 +10,6 @@ int main(int argc, char** argv)
 {% else %}
 #include <iostream>
 #include <vector>
-#include <memory>
 #include <fstream>
 #include <streampu.hpp>
 {% if use_aff3ct %}
@@ -61,7 +60,7 @@ int main(int argc, char** argv)
     {% endif %}
     {% if use_hw %}
     // NOTE: Keep a single traced HW instance by default.
-    auto hw_passthrough = std::make_unique<VerilatorSimulation<VModel_PassThrough>>(K, "trace_main", true);
+    VerilatorSimulation<VModel_PassThrough> hw_passthrough(K, "trace_main", true);
     {% endif %}
 
     // 2. Sockets binding
@@ -73,12 +72,12 @@ int main(int argc, char** argv)
 
     // in_got: source -> [hw ->] [custom ->] encoder -> decoder -> comparator
     {% if use_hw %}
-    source[src::tsk::generate][(int)src::sck::generate::out_data] = (*hw_passthrough)["simulate::input"];
+    source[src::tsk::generate][(int)src::sck::generate::out_data] = hw_passthrough["simulate::input"];
     {% if use_custom %}
-    (*hw_passthrough)["simulate::output"] = my_module["process::in"];
+    hw_passthrough["simulate::output"] = my_module["process::in"];
     my_module["process::out"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% else %}
-    (*hw_passthrough)["simulate::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
+    hw_passthrough["simulate::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% endif %}
     {% else %}
     {% if use_custom %}
@@ -103,13 +102,13 @@ int main(int argc, char** argv)
     {% endif %}
     {% if use_hw %}
     // NOTE: Keep a single traced HW instance by default.
-    auto hw_passthrough = std::make_unique<VerilatorSimulation<VModel_PassThrough>>(n_elmts, "trace_main", true);
+    VerilatorSimulation<VModel_PassThrough> hw_passthrough(n_elmts, "trace_main", true);
 
     // Additional hardware blocks can be added using add_hardware_module.py
     // They are created with trace DISABLED to avoid Verilator context conflicts
     // Example (add via script):
     //   #include "VModel_increment.h"
-    //   auto hw_increment = std::make_unique<VerilatorSimulation<VModel_increment>>(n_elmts, "trace_increment", false);
+    //   VerilatorSimulation<VModel_increment> hw_increment(n_elmts, "trace_increment", false);
     {% endif %}
 
     // 2. Sockets binding
@@ -118,12 +117,12 @@ int main(int argc, char** argv)
 
     {% if use_hw %}
     // in_got: source -> [hw pipeline ->] [custom ->] comparator
-    source["generate::out_data"] = (*hw_passthrough)["simulate::input"];
+    source["generate::out_data"] = hw_passthrough["simulate::input"];
     {% if use_custom %}
-    (*hw_passthrough)["simulate::output"] = my_module["process::in"];
+    hw_passthrough["simulate::output"] = my_module["process::in"];
     my_module["process::out"] = comparator["check::in_got"];
     {% else %}
-    (*hw_passthrough)["simulate::output"] = comparator["check::in_got"];
+    hw_passthrough["simulate::output"] = comparator["check::in_got"];
     {% endif %}
     {% elif use_custom %}
     // in_got: source -> custom module -> comparator

@@ -21,6 +21,15 @@ find_package(verilator REQUIRED)
 find_package(Threads REQUIRED)
 {% endif %}
 
+# Boost ASIO (for SerialPort module)
+find_package(Boost QUIET COMPONENTS system)
+if(Boost_FOUND)
+    message(STATUS "Found Boost: ${Boost_INCLUDE_DIRS}")
+    add_definitions(-DHULOTTE_USE_BOOST_ASIO)
+else()
+    message(WARNING "Boost ASIO not found - SerialPort module will not be available")
+endif()
+
 # ============================================================
 # LOAD HULOTTE ENVIRONMENT
 # ============================================================
@@ -192,6 +201,12 @@ endif()
 
 # Main executable
 add_executable({{ project_name }} src/main.cpp)
+
+# Include directories for common modules (including SerialPort if Boost available)
+if(Boost_FOUND)
+    target_include_directories({{ project_name }} PRIVATE ${Boost_INCLUDE_DIRS})
+endif()
+
 target_link_libraries({{ project_name }} ${HULOTTE_LIBS} ${CUSTOM_MODULE_LIBS})
 
 {% if use_hw %}
@@ -200,3 +215,8 @@ if(DEFINED HW_MODELS_LIST)
     target_link_libraries({{ project_name }} ${HW_MODELS_LIST} Threads::Threads)
 endif()
 {% endif %}
+
+# Link Boost if found
+if(Boost_FOUND)
+    target_link_libraries({{ project_name }} ${Boost_LIBRARIES})
+endif()
