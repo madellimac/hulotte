@@ -1,2 +1,0 @@
-add_executable(ex2_spu_custom main_spu_custom.cpp)
-target_link_libraries(ex2_spu_custom hulotte_custom)
