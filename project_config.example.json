@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "project_name": "my_hulotte_project",
+  "output_dir": ".",
+  "hulotte_root": "/home/cleroux/PROJECTS/hulotte",
+  "streampu_root": "/home/cleroux/PROJECTS/hulotte/streampu",
+  "use_streampu": true,
+  "use_aff3ct": false,
+  "use_custom": true,
+  "use_hw": false,
+  "aff3ct_root": null
+}
