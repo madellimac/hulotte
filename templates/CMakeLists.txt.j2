@@ -21,13 +21,13 @@ find_package(verilator REQUIRED)
 find_package(Threads REQUIRED)
 {% endif %}
 
-# Boost ASIO (for SerialPort module)
+# Boost ASIO (for SerialPort/UartFrameIO modules)
 find_package(Boost QUIET COMPONENTS system)
 if(Boost_FOUND)
     message(STATUS "Found Boost: ${Boost_INCLUDE_DIRS}")
     add_definitions(-DHULOTTE_USE_BOOST_ASIO)
 else()
-    message(WARNING "Boost ASIO not found - SerialPort module will not be available")
+    message(WARNING "Boost ASIO not found - SerialPort/UartFrameIO modules will not be available")
 endif()
 
 # ============================================================
@@ -192,7 +192,7 @@ endforeach()
 # Common StreamPU support modules copied to common/sw
 file(GLOB COMMON_SW_SOURCES "common/sw/*.cpp")
 if(NOT Boost_FOUND)
-    list(FILTER COMMON_SW_SOURCES EXCLUDE REGEX ".*SerialPort\\.cpp$")
+    list(FILTER COMMON_SW_SOURCES EXCLUDE REGEX ".*(SerialPort|UartFrameIO)\\.cpp$")
 endif()
 
 if(COMMON_SW_SOURCES)

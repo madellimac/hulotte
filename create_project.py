@@ -145,6 +145,10 @@ class ProjectConfig:
     use_custom: bool = True
     use_hw: bool = False
     aff3ct_root: Optional[str] = None
+    use_uart_io: bool = False
+    uart_port: str = "/dev/ttyUSB0"
+    uart_baud: int = 115200
+    uart_frame_size: int = 16
 
 
 CONFIG_VERSION = 1
@@ -159,12 +163,22 @@ ALLOWED_CONFIG_KEYS = {
     "use_custom",
     "use_hw",
     "aff3ct_root",
+    "use_uart_io",
+    "uart_port",
+    "uart_baud",
+    "uart_frame_size",
 }
 
 
 def _require_bool(value, key_name):
     if not isinstance(value, bool):
         raise ValueError(f"'{key_name}' must be a boolean")
+    return value
+
+
+def _require_positive_int(value, key_name):
+    if not isinstance(value, int) or value <= 0:
+        raise ValueError(f"'{key_name}' must be a positive integer")
     return value
 
 
@@ -201,12 +215,20 @@ def project_config_from_dict(raw_config, default_hulotte_root=None):
     use_aff3ct = _require_bool(raw_config.get("use_aff3ct", False), "use_aff3ct")
     use_custom = _require_bool(raw_config.get("use_custom", True), "use_custom")
     use_hw = _require_bool(raw_config.get("use_hw", False), "use_hw")
+    use_uart_io = _require_bool(raw_config.get("use_uart_io", False), "use_uart_io")
 
     aff3ct_root = raw_config.get("aff3ct_root")
     if aff3ct_root is not None and not isinstance(aff3ct_root, str):
         raise ValueError("'aff3ct_root' must be a string when provided")
     if use_aff3ct and not aff3ct_root:
         raise ValueError("'aff3ct_root' is required when 'use_aff3ct' is true")
+
+    uart_port = raw_config.get("uart_port", "/dev/ttyUSB0")
+    if not isinstance(uart_port, str) or not uart_port.strip():
+        raise ValueError("'uart_port' must be a non-empty string")
+
+    uart_baud = _require_positive_int(raw_config.get("uart_baud", 115200), "uart_baud")
+    uart_frame_size = _require_positive_int(raw_config.get("uart_frame_size", 16), "uart_frame_size")
 
     return ProjectConfig(
         project_name=project_name,
@@ -218,6 +240,10 @@ def project_config_from_dict(raw_config, default_hulotte_root=None):
         use_custom=use_custom,
         use_hw=use_hw,
         aff3ct_root=aff3ct_root,
+        use_uart_io=use_uart_io,
+        uart_port=uart_port,
+        uart_baud=uart_baud,
+        uart_frame_size=uart_frame_size,
     )
 
 
@@ -241,6 +267,10 @@ def project_config_to_dict(config: ProjectConfig):
         "use_custom": config.use_custom,
         "use_hw": config.use_hw,
         "aff3ct_root": config.aff3ct_root,
+        "use_uart_io": config.use_uart_io,
+        "uart_port": config.uart_port,
+        "uart_baud": config.uart_baud,
+        "uart_frame_size": config.uart_frame_size,
     }
 
 
@@ -312,6 +342,7 @@ def generate_project_from_config(config: ProjectConfig, log: Optional[Callable[[
         "use_custom": config.use_custom,
         "use_hw": config.use_hw,
         "use_streampu": config.use_streampu,
+        "use_uart_io": config.use_uart_io,
     }
     with open(project_dir / "CMakeLists.txt", "w") as f:
         f.write(render_template("CMakeLists.txt.j2", cmake_context))
@@ -323,6 +354,10 @@ def generate_project_from_config(config: ProjectConfig, log: Optional[Callable[[
         "use_aff3ct": config.use_aff3ct,
         "use_hw": config.use_hw,
         "use_streampu": config.use_streampu,
+        "use_uart_io": config.use_uart_io,
+        "uart_port": config.uart_port,
+        "uart_baud": config.uart_baud,
+        "uart_frame_size": config.uart_frame_size,
     }
     with open(src_dir / "main.cpp", "w") as f:
         f.write(render_template("main.cpp.j2", main_context))
@@ -405,6 +440,10 @@ fi
         "use_aff3ct": config.use_aff3ct,
         "use_custom": config.use_custom,
         "use_hw": config.use_hw,
+        "use_uart_io": config.use_uart_io,
+        "uart_port": config.uart_port,
+        "uart_baud": config.uart_baud,
+        "uart_frame_size": config.uart_frame_size,
     }
     with open(project_dir / "README.md", "w") as f:
         f.write(render_template("README.md.j2", readme_context))
@@ -422,7 +461,7 @@ fi
     return project_dir
 
 
-def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=None, use_custom=None, use_hw=None, streampu_root=None, aff3ct_root=None, output_dir="."):
+def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=None, use_custom=None, use_hw=None, use_uart_io=None, uart_port=None, uart_baud=None, uart_frame_size=None, streampu_root=None, aff3ct_root=None, output_dir="."):
     """Main project generation function."""
     print_ascii_art()
     if hoot:
@@ -463,6 +502,24 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
 
     if use_hw is None:
         use_hw = ask_yes_no("Add hardware simulation (Verilator)?", default=False)
+
+    if use_uart_io is None:
+        use_uart_io = ask_yes_no("Use UART in/out module (host serial -> FPGA -> host serial)?", default=False)
+
+    if use_uart_io:
+        if uart_port is None:
+            uart_port = input("UART port [/dev/ttyUSB0]: ").strip() or "/dev/ttyUSB0"
+        if uart_baud is None:
+            uart_baud_str = input("UART baud [115200]: ").strip() or "115200"
+            uart_baud = int(uart_baud_str)
+        if uart_frame_size is None:
+            uart_frame_size_str = input("UART frame size (bytes) [16]: ").strip() or "16"
+            uart_frame_size = int(uart_frame_size_str)
+    else:
+        uart_port = uart_port if uart_port is not None else "/dev/ttyUSB0"
+        uart_baud = uart_baud if uart_baud is not None else 115200
+        uart_frame_size = uart_frame_size if uart_frame_size is not None else 16
+
     config = ProjectConfig(
         project_name=project_name,
         output_dir=output_dir,
@@ -473,6 +530,10 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
         use_custom=use_custom,
         use_hw=use_hw,
         aff3ct_root=aff3ct_dir,
+        use_uart_io=use_uart_io,
+        uart_port=uart_port,
+        uart_baud=uart_baud,
+        uart_frame_size=uart_frame_size,
     )
 
     try:
@@ -492,6 +553,11 @@ def create_project(hoot=False, project_name=None, use_streampu=None, use_aff3ct=
     print(f"AFF3CT: {'Enabled' if use_aff3ct else 'Disabled'}")
     print(f"Custom module: {'Enabled' if use_custom else 'Disabled'}")
     print(f"Hardware simulation: {'Enabled' if use_hw else 'Disabled'}")
+    print(f"UART module: {'Enabled' if use_uart_io else 'Disabled'}")
+    if use_uart_io:
+        print(f"UART port: {uart_port}")
+        print(f"UART baud: {uart_baud}")
+        print(f"UART frame size: {uart_frame_size}")
     print(f"\nNext steps:")
     print(f"  1. cd {to_relative_path(project_dir)}")
     print(f"  2. ./build.sh")
@@ -524,6 +590,15 @@ def run_tui(hoot=False):
 
     use_custom = ask_yes_no("Add custom module?", default=True)
     use_hw = ask_yes_no("Add hardware simulation (Verilator)?", default=False)
+    use_uart_io = ask_yes_no("Use UART in/out module (host serial -> FPGA -> host serial)?", default=False)
+
+    uart_port = "/dev/ttyUSB0"
+    uart_baud = 115200
+    uart_frame_size = 16
+    if use_uart_io:
+        uart_port = input("UART port [/dev/ttyUSB0]: ").strip() or "/dev/ttyUSB0"
+        uart_baud = int((input("UART baud [115200]: ").strip() or "115200"))
+        uart_frame_size = int((input("UART frame size (bytes) [16]: ").strip() or "16"))
 
     config = ProjectConfig(
         project_name=project_name,
@@ -535,6 +610,10 @@ def run_tui(hoot=False):
         use_custom=use_custom,
         use_hw=use_hw,
         aff3ct_root=aff3ct_root,
+        use_uart_io=use_uart_io,
+        uart_port=uart_port,
+        uart_baud=uart_baud,
+        uart_frame_size=uart_frame_size,
     )
 
     # Validate config before final confirmation.
@@ -550,6 +629,10 @@ def run_tui(hoot=False):
     print(f"use_aff3ct   : {config.use_aff3ct}")
     print(f"use_custom   : {config.use_custom}")
     print(f"use_hw       : {config.use_hw}")
+    print(f"use_uart_io  : {config.use_uart_io}")
+    print(f"uart_port    : {config.uart_port}")
+    print(f"uart_baud    : {config.uart_baud}")
+    print(f"uart_frame_size: {config.uart_frame_size}")
     print(f"aff3ct_root  : {to_relative_path(config.aff3ct_root) if config.aff3ct_root else 'None'}")
 
     if ask_yes_no("Save this config to a JSON file?", default=True):
@@ -574,6 +657,11 @@ def run_tui(hoot=False):
     print(f"AFF3CT: {'Enabled' if config.use_aff3ct else 'Disabled'}")
     print(f"Custom module: {'Enabled' if config.use_custom else 'Disabled'}")
     print(f"Hardware simulation: {'Enabled' if config.use_hw else 'Disabled'}")
+    print(f"UART module: {'Enabled' if config.use_uart_io else 'Disabled'}")
+    if config.use_uart_io:
+        print(f"UART port: {config.uart_port}")
+        print(f"UART baud: {config.uart_baud}")
+        print(f"UART frame size: {config.uart_frame_size}")
     print(f"\nNext steps:")
     print(f"  1. cd {to_relative_path(project_dir)}")
     print(f"  2. ./build.sh")
@@ -604,6 +692,13 @@ if __name__ == "__main__":
     # Hardware Simulation
     parser.add_argument("--hw", action="store_const", const=True, dest="hw", help="Enable hardware simulation")
     parser.add_argument("--no-hw", action="store_const", const=False, dest="hw", help="Disable hardware simulation")
+
+    # UART FPGA I/O
+    parser.add_argument("--uart-io", action="store_const", const=True, dest="uart_io", help="Enable UART input/output module path")
+    parser.add_argument("--no-uart-io", action="store_const", const=False, dest="uart_io", help="Disable UART input/output module path")
+    parser.add_argument("--uart-port", help="Serial device path used by UartFrameIO (default: /dev/ttyUSB0)")
+    parser.add_argument("--uart-baud", type=int, help="Serial baud rate used by UartFrameIO (default: 115200)")
+    parser.add_argument("--uart-frame-size", type=int, help="Frame size in bytes for UartFrameIO (default: 16)")
 
     parser.add_argument("--streampu-root", help="Path to StreamPU root")
     parser.add_argument("--aff3ct-root", help="Path to AFF3CT root")
@@ -647,6 +742,14 @@ if __name__ == "__main__":
             config.use_custom = args.custom
         if args.hw is not None:
             config.use_hw = args.hw
+        if args.uart_io is not None:
+            config.use_uart_io = args.uart_io
+        if args.uart_port:
+            config.uart_port = args.uart_port
+        if args.uart_baud is not None:
+            config.uart_baud = args.uart_baud
+        if args.uart_frame_size is not None:
+            config.uart_frame_size = args.uart_frame_size
 
         try:
             config = project_config_from_dict({
@@ -660,6 +763,10 @@ if __name__ == "__main__":
                 "use_custom": config.use_custom,
                 "use_hw": config.use_hw,
                 "aff3ct_root": config.aff3ct_root,
+                "use_uart_io": config.use_uart_io,
+                "uart_port": config.uart_port,
+                "uart_baud": config.uart_baud,
+                "uart_frame_size": config.uart_frame_size,
             }, default_hulotte_root=hulotte_dir)
         except Exception as e:
             print(f"\nERROR: invalid effective config after overrides: {e}")
@@ -684,6 +791,11 @@ if __name__ == "__main__":
             print(f"AFF3CT: {'Enabled' if config.use_aff3ct else 'Disabled'}")
             print(f"Custom module: {'Enabled' if config.use_custom else 'Disabled'}")
             print(f"Hardware simulation: {'Enabled' if config.use_hw else 'Disabled'}")
+            print(f"UART module: {'Enabled' if config.use_uart_io else 'Disabled'}")
+            if config.use_uart_io:
+                print(f"UART port: {config.uart_port}")
+                print(f"UART baud: {config.uart_baud}")
+                print(f"UART frame size: {config.uart_frame_size}")
             print(f"\nNext steps:")
             print(f"  1. cd {to_relative_path(project_dir)}")
             print(f"  2. ./build.sh")
@@ -706,6 +818,7 @@ if __name__ == "__main__":
     use_custom   = args.custom   if args.custom is not None else (True if is_non_interactive else None)
     use_aff3ct   = args.aff3ct   if args.aff3ct is not None else (False if is_non_interactive else None)
     use_hw       = args.hw       if args.hw is not None else (False if is_non_interactive else None)
+    use_uart_io  = args.uart_io  if args.uart_io is not None else (False if is_non_interactive else None)
 
     try:
         success = create_project(
@@ -715,6 +828,10 @@ if __name__ == "__main__":
             use_aff3ct=use_aff3ct,
             use_custom=use_custom,
             use_hw=use_hw,
+            use_uart_io=use_uart_io,
+            uart_port=args.uart_port,
+            uart_baud=args.uart_baud,
+            uart_frame_size=args.uart_frame_size,
             streampu_root=args.streampu_root,
             aff3ct_root=args.aff3ct_root,
             output_dir=args.output_dir if args.output_dir else "."

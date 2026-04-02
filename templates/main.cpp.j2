@@ -24,6 +24,9 @@ int main(int argc, char** argv)
 {% if use_custom %}
 #include "custom/MyModule.hpp"
 {% endif %}
+{% if use_uart_io %}
+#include "UartFrameIO.hpp"
+{% endif %}
 #include "Comparator.hpp"
 
 using namespace spu;
@@ -55,6 +58,11 @@ int main(int argc, char** argv)
     aff3ct::module::Encoder_RS<>     encoder(K_rs, N_rs, poly);
     aff3ct::module::Decoder_RS_std<> decoder(K_rs, N_rs, poly);
 
+    {% if use_uart_io %}
+    // In AFF3CT mode, keep UART frame size aligned with K.
+    module::UartFrameIO         uart_io("{{ uart_port }}", {{ uart_baud }}, K);
+    {% endif %}
+
     {% if use_custom %}
     module::MyModule         my_module(K);
     {% endif %}
@@ -70,8 +78,24 @@ int main(int argc, char** argv)
     // in_ref: source directly to comparator (reference path)
     source[src::tsk::generate][(int)src::sck::generate::out_data] = comparator["check::in_ref"];
 
-    // in_got: source -> [hw ->] [custom ->] encoder -> decoder -> comparator
+    // in_got: source -> [uart ->] [hw ->] [custom ->] encoder -> decoder -> comparator
+    {% if use_uart_io %}
+    source[src::tsk::generate][(int)src::sck::generate::out_data] = uart_io["exchange::input"];
     {% if use_hw %}
+    uart_io["exchange::output"] = hw_passthrough["simulate::input"];
+    {% if use_custom %}
+    hw_passthrough["simulate::output"] = my_module["process::in"];
+    my_module["process::out"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
+    {% else %}
+    hw_passthrough["simulate::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
+    {% endif %}
+    {% elif use_custom %}
+    uart_io["exchange::output"] = my_module["process::in"];
+    my_module["process::out"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
+    {% else %}
+    uart_io["exchange::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
+    {% endif %}
+    {% elif use_hw %}
     source[src::tsk::generate][(int)src::sck::generate::out_data] = hw_passthrough["simulate::input"];
     {% if use_custom %}
     hw_passthrough["simulate::output"] = my_module["process::in"];
@@ -79,13 +103,11 @@ int main(int argc, char** argv)
     {% else %}
     hw_passthrough["simulate::output"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% endif %}
-    {% else %}
-    {% if use_custom %}
+    {% elif use_custom %}
     source[src::tsk::generate][(int)src::sck::generate::out_data] = my_module["process::in"];
     my_module["process::out"] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
     {% else %}
     source[src::tsk::generate][(int)src::sck::generate::out_data] = encoder[enc::tsk::encode][(int)enc::sck::encode::U_K];
-    {% endif %}
     {% endif %}
 
     encoder[enc::tsk::encode][(int)enc::sck::encode::X_N]           = decoder[dec::tsk::decode_hiho][(int)dec::sck::decode_hiho::Y_N];
@@ -94,9 +116,12 @@ int main(int argc, char** argv)
 {% else %}
     // 1. Modules creation
 
-    const int n_elmts = 16;
+    const int n_elmts = {% if use_uart_io %}{{ uart_frame_size }}{% else %}16{% endif %};
     module::Source_random<int> source(n_elmts);
     Comparator                  comparator(n_elmts);
+    {% if use_uart_io %}
+    module::UartFrameIO         uart_io("{{ uart_port }}", {{ uart_baud }}, n_elmts);
+    {% endif %}
     {% if use_custom %}
     module::MyModule         my_module(n_elmts);
     {% endif %}
@@ -112,11 +137,28 @@ int main(int argc, char** argv)
     {% endif %}
 
     // 2. Sockets binding
+    {% if use_hw and use_uart_io %}
+    // Co-simulation mode: HW simulation vs FPGA real hardware
+    // Both paths run in parallel; comparator checks if outputs match
+    source["generate::out_data"] = hw_passthrough["simulate::input"];
+    source["generate::out_data"] = uart_io["exchange::input"];
+    hw_passthrough["simulate::output"]  = comparator["check::in_ref"];  // ref from Verilator
+    uart_io["exchange::output"]         = comparator["check::in_got"];  // got from FPGA
+    {% else %}
     // in_ref: source directly to comparator (reference -- unchanged data)
     source["generate::out_data"] = comparator["check::in_ref"];
 
-    {% if use_hw %}
-    // in_got: source -> [hw pipeline ->] [custom ->] comparator
+    {% if use_uart_io %}
+    // UART I/O mode: source -> UART -> [custom ->] comparator
+    source["generate::out_data"] = uart_io["exchange::input"];
+    {% if use_custom %}
+    uart_io["exchange::output"] = my_module["process::in"];
+    my_module["process::out"] = comparator["check::in_got"];
+    {% else %}
+    uart_io["exchange::output"] = comparator["check::in_got"];
+    {% endif %}
+    {% elif use_hw %}
+    // Hardware simulation mode: source -> [hw pipeline ->] [custom ->] comparator
     source["generate::out_data"] = hw_passthrough["simulate::input"];
     {% if use_custom %}
     hw_passthrough["simulate::output"] = my_module["process::in"];
@@ -125,12 +167,13 @@ int main(int argc, char** argv)
     hw_passthrough["simulate::output"] = comparator["check::in_got"];
     {% endif %}
     {% elif use_custom %}
-    // in_got: source -> custom module -> comparator
+    // Custom module mode: source -> custom module -> comparator
     source["generate::out_data"] = my_module["process::in"];
     my_module["process::out"]    = comparator["check::in_got"];
     {% else %}
-    // in_got: source directly (smoke test -- always passes)
+    // Smoke test mode: source directly (always passes)
     source["generate::out_data"] = comparator["check::in_got"];
+    {% endif %}
     {% endif %}
 {% endif %}
 

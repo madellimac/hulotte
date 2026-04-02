@@ -25,6 +25,56 @@ make -j
 ./build/{{ project_name }}
 ```
 
+{% if use_hw and use_uart_io %}
+## Co-Simulation Mode
+
+This project is generated with both **Verilator simulation** and **FPGA UART I/O** enabled.
+
+- UART port: `{{ uart_port }}`
+- UART baud: `{{ uart_baud }}`
+- Frame size (bytes): `{{ uart_frame_size }}`
+
+Data path:
+
+```
+Source_random
+    ├→ Verilator (PassThrough) ──┐
+    └→ UartFrameIO (FPGA real)   ├→ Comparator
+                                 │
+```
+
+In this mode, each frame is sent to both the Verilator model (RTL simulation) and the FPGA (via UART).
+The outputs are compared to verify that the synthesized design matches the simulation.
+
+{% elif use_uart_io %}
+## UART FPGA I/O Mode
+
+This project is generated with `UartFrameIO` enabled for real FPGA hardware.
+
+- UART port: `{{ uart_port }}`
+- UART baud: `{{ uart_baud }}`
+- Frame size (bytes): `{{ uart_frame_size }}`
+
+Data path:
+
+`Source_random -> UartFrameIO -> Comparator`
+
+Each StreamPU frame is transmitted to the FPGA through the host serial port,
+then a frame of the same size is read back from the same serial port.
+
+{% elif use_hw %}
+## Hardware Simulation Mode
+
+This project is generated with Verilator RTL simulation enabled.
+
+Data path:
+
+`Source_random -> Verilator (PassThrough) -> Comparator`
+
+The design runs entirely in simulation using Verilator for co-design verification.
+
+{% endif %}
+
 {% if use_hw %}
 ## Waveforms
 
@@ -41,4 +91,5 @@ To visualize the simulation waveforms (generated in `waveform.vcd`):
 - AFF3CT support: {{ "✓" if use_aff3ct else "✗" }}
 - Custom module: {{ "✓" if use_custom else "✗" }}
 - Hardware simulation: {{ "✓" if use_hw else "✗" }}
+- UART FPGA I/O: {{ "✓" if use_uart_io else "✗" }}
 - Surfer visualization: {{ "✓" if use_hw else "N/A" }}
