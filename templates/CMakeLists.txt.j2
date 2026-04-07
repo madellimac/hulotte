@@ -127,6 +127,28 @@ include_directories(common/hw)
 {% if use_streampu %}
 add_definitions(-DHULOTTE_USE_STREAMPU)
 
+if(DEFINED mipp_ROOT)
+    set(MIPP_ROOT ${mipp_ROOT})
+    message(STATUS "Using mipp from: ${mipp_ROOT}")
+else()
+    find_path(MIPP_INCLUDE_DIR
+        NAMES mipp/mipp.hpp
+        PATHS /usr/local/include /usr/include
+        PATH_SUFFIXES mipp
+    )
+    if(MIPP_INCLUDE_DIR)
+        get_filename_component(MIPP_ROOT ${MIPP_INCLUDE_DIR}/.. ABSOLUTE)
+    endif()
+endif()
+
+if(MIPP_ROOT AND EXISTS ${MIPP_ROOT}/include/mipp/mipp.hpp)
+    add_library(mipp INTERFACE)
+    target_include_directories(mipp INTERFACE ${MIPP_ROOT}/include)
+    message(STATUS "mipp found: ${MIPP_ROOT}")
+else()
+    message(WARNING "mipp not found – SIMD optimisations may be disabled")
+endif()
+
 # ============================================================
 # PROJECT SOURCES
 # ============================================================
@@ -245,3 +267,6 @@ endif()
 if(Boost_FOUND)
     target_link_libraries({{ project_name }} ${Boost_LIBRARIES})
 endif()
+
+if(MIPP_ROOT)
+    target_link_libraries({{ project_name }} mipp)

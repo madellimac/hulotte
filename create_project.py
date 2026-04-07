@@ -145,6 +145,7 @@ class ProjectConfig:
     use_custom: bool = True
     use_hw: bool = False
     aff3ct_root: Optional[str] = None
+    mipp_root: Optional[str] = None
 
 
 CONFIG_VERSION = 1
@@ -208,6 +209,11 @@ def project_config_from_dict(raw_config, default_hulotte_root=None):
     if use_aff3ct and not aff3ct_root:
         raise ValueError("'aff3ct_root' is required when 'use_aff3ct' is true")
 
+    mipp_root = raw_config.get("mipp_root")
+    if mipp_root is not None and not isinstance(mipp_root, str):
+        raise ValueError("'mipp_root' must be a string when provided")
+
+
     return ProjectConfig(
         project_name=project_name,
         output_dir=output_dir,
@@ -218,6 +224,7 @@ def project_config_from_dict(raw_config, default_hulotte_root=None):
         use_custom=use_custom,
         use_hw=use_hw,
         aff3ct_root=aff3ct_root,
+        mipp_root=mipp_root,
     )
 
 
@@ -265,7 +272,8 @@ def generate_project_from_config(config: ProjectConfig, log: Optional[Callable[[
         raise ValueError("streampu_root is required when use_streampu=True")
     if config.use_aff3ct and not config.aff3ct_root:
         raise ValueError("aff3ct_root is required when use_aff3ct=True")
-
+    if config.mipp_root:
+        cmake_args_lines.append(f'-Dmipp_ROOT="{config.mipp_root}"')
     hulotte_dir = str(Path(config.hulotte_root).resolve())
     streampu_dir = str(Path(config.streampu_root).resolve())
     aff3ct_dir = str(Path(config.aff3ct_root).resolve()) if config.use_aff3ct and config.aff3ct_root else None
@@ -364,7 +372,6 @@ obj_dir/
         if os.path.exists("/usr/share/verilator/verilator-config.cmake"):
             verilator_prefix = "/usr/share/verilator"
         cmake_args_lines.append(f'-DCMAKE_PREFIX_PATH="{verilator_prefix}"')
-
     cmake_args_block = " \\\n+    ".join(cmake_args_lines)
 
     build_script = f"""#!/bin/bash
@@ -590,7 +597,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", help="Override output directory")
     parser.add_argument("--tui", action="store_true", help="Run terminal UI wizard")
     parser.add_argument("--hoot", action="store_true", help="Enable startup sound")
-    
+    parser.add_argument("--mipp-root", help="Path to mipp root directory (contains include/mipp/)")
     # Enable/Disable arguments
     
     # AFF3CT
@@ -647,7 +654,8 @@ if __name__ == "__main__":
             config.use_custom = args.custom
         if args.hw is not None:
             config.use_hw = args.hw
-
+        if args.mipp_root:
+            config.mipp_root = args.mipp_root
         try:
             config = project_config_from_dict({
                 "version": CONFIG_VERSION,
@@ -660,6 +668,7 @@ if __name__ == "__main__":
                 "use_custom": config.use_custom,
                 "use_hw": config.use_hw,
                 "aff3ct_root": config.aff3ct_root,
+                "mipp_root": config.mipp_root
             }, default_hulotte_root=hulotte_dir)
         except Exception as e:
             print(f"\nERROR: invalid effective config after overrides: {e}")

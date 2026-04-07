@@ -4,6 +4,8 @@
 # On suppose par defaut que les dossiers projets sont au meme niveau que hulotte
 STREAMPU_ROOT="./streampu"
 AFF3CT_ROOT="./aff3ct"
+MIPP_ROOT="./mipp"
+
 
 # Dossier de sortie pour les tests
 OUTPUT_DIR="test_projects"
@@ -28,7 +30,6 @@ for aff3ct in "no-aff3ct" "aff3ct"; do
             if [ "$aff3ct" == "aff3ct" ]; then NAME_PART="${NAME_PART}_aff3ct"; fi
             if [ "$custom" == "custom" ]; then NAME_PART="${NAME_PART}_custom"; fi
             if [ "$hw" == "hw" ]; then NAME_PART="${NAME_PART}_hw"; fi
-            
             # Si aucune option, on l'appelle 'minimal'
             if [ -z "$NAME_PART" ]; then NAME_PART="_minimal"; fi
             
@@ -48,6 +49,11 @@ for aff3ct in "no-aff3ct" "aff3ct"; do
                 PYTHON_CMD="../.venv/bin/python"
             fi
             
+            MIPP_OPT=""
+            if [ -d "$MIPP_ROOT" ]; then
+                MIPP_OPT="--mipp-root $MIPP_ROOT"
+            fi
+
             $PYTHON_CMD create_project.py \
                 --name "$PROJ_NAME" \
                 --$aff3ct \
@@ -55,6 +61,7 @@ for aff3ct in "no-aff3ct" "aff3ct"; do
                 --$hw \
                 --streampu-root "$STREAMPU_ROOT" \
                 --aff3ct-root "$AFF3CT_ROOT" \
+                $MIPP_OPT \
                 > /dev/null
             
             # Deplacement dans le dossier de test

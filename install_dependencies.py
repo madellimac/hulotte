@@ -335,7 +335,6 @@ def install_streampu(hulotte_root):
         "streampu_lib": str(lib_file.resolve())
     }
 
-
 def install_surfer(hulotte_root):
     """Download and install Surfer binary"""
     print_header("Installing Surfer (Waveform Viewer)")
@@ -409,9 +408,28 @@ def install_surfer(hulotte_root):
         print_error(f"Error installing Surfer: {e}")
         return None
 
+def install_mipp(hulotte_root):
+    """Clone mipp (header-only SIMD library) into hulotte_root/mipp."""
+    print_header("Installing mipp (header-only SIMD library)")
 
+    mipp_url = "https://github.com/aff3ct/mipp.git"
+    mipp_dir = hulotte_root / "mipp"
 
-def create_install_info(hulotte_root, aff3ct_info, streampu_info, surfer_path=None):
+    if mipp_dir.exists():
+        print_warning(f"mipp already exists at {to_relative_path(mipp_dir)}")
+        if not ask_yes_no("Re‑clone / update?", default=False):
+            return str(mipp_dir)
+        run_command(f"rm -rf {mipp_dir}")
+
+    print_info("Cloning mipp repository...")
+    if not run_command(f"git clone --depth 1 {mipp_url} {mipp_dir}", cwd=hulotte_root):
+        print_error("Failed to clone mipp")
+        return None
+
+    print_success(f"mipp cloned to {to_relative_path(mipp_dir)}")
+    return str(mipp_dir)
+
+def create_install_info(hulotte_root, aff3ct_info, streampu_info, mipp_root, surfer_path=None):
     """
     Create a file with installation information
     """
@@ -439,6 +457,9 @@ def create_install_info(hulotte_root, aff3ct_info, streampu_info, surfer_path=No
         if surfer_path:
              f.write(f"Surfer (Waveform Viewer): {surfer_path}\n")
         
+        if mipp_root:
+            f.write(f"mipp (header‑only) : {mipp_root}\n")
+
         f.write("\nTo create a new project, run:\n")
         f.write("  python3 create_project.py\n")
     
@@ -559,9 +580,13 @@ def main(hoot=False):
     if ask_yes_no("\nDo you want to install Surfer (Waveform Viewer)?", default=True):
         surfer_path = install_surfer(hulotte_root)
     
+    mipp_root = None
+    if ask_yes_no("\nDo you want to install mipp (SIMD library)?", default=True):
+        mipp_root = install_mipp(hulotte_root)
+
     # Create installation info file
-    if aff3ct_info or streampu_info or surfer_path:
-        create_install_info(hulotte_root, aff3ct_info, streampu_info, surfer_path)
+    if aff3ct_info or streampu_info or surfer_path or mipp_root:
+        create_install_info(hulotte_root, aff3ct_info, streampu_info, surfer_path, mipp_root)
     
     # Final summary
     print_header("Installation Complete")
