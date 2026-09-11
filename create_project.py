@@ -9,6 +9,7 @@ import sys
 import argparse
 import json
 import math
+from datetime import datetime, timezone
 import wave
 import struct
 import shutil
@@ -152,6 +153,9 @@ class ProjectConfig:
 
 
 CONFIG_VERSION = 1
+MANIFEST_VERSION = 1
+MANIFEST_FILENAME = "hulotte.project.json"
+
 ALLOWED_CONFIG_KEYS = {
     "version",
     "project_name",
@@ -168,6 +172,174 @@ ALLOWED_CONFIG_KEYS = {
     "uart_baud",
     "uart_frame_size",
 }
+
+
+def build_project_manifest(config: ProjectConfig, project_dir: Path):
+    """Build the project manifest payload for the generated project."""
+    now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    mode = "minimal"
+    if config.use_hw and config.use_uart_io:
+        mode = "co_simulation"
+    elif config.use_hw:
+        mode = "hw_only"
+    elif config.use_uart_io:
+        mode = "uart_only"
+
+    return {
+        "schema_version": MANIFEST_VERSION,
+        "tooling": {
+            "generator": "create_project.py",
+            "created_at": now_utc,
+        },
+        "project": {
+            "name": config.project_name,
+            "root": str(project_dir),
+        },
+        "features": {
+            "streampu": config.use_streampu,
+            "aff3ct": config.use_aff3ct,
+            "custom": config.use_custom,
+            "hardware": config.use_hw,
+            "uart_io": config.use_uart_io,
+        },
+        "uart": {
+            "enabled": config.use_uart_io,
+            "port": config.uart_port,
+            "baud": config.uart_baud,
+            "frame_size": config.uart_frame_size,
+        },
+        "pipeline": {
+            "mode": mode,
+        },
+        "operations_log": [
+            {
+                "op": "create_project",
+                "timestamp": now_utc,
+                "args": {
+                    "use_streampu": config.use_streampu,
+                    "use_aff3ct": config.use_aff3ct,
+                    "use_custom": config.use_custom,
+                    "use_hw": config.use_hw,
+                    "use_uart_io": config.use_uart_io,
+                },
+            }
+        ],
+    }
+
+
+def validate_project_manifest_data(manifest_data):
+    """Validate the structure of a Hulotte project manifest."""
+    errors = []
+
+    if not isinstance(manifest_data, dict):
+        return ["manifest root must be a JSON object"]
+
+    schema_version = manifest_data.get("schema_version")
+    if schema_version != MANIFEST_VERSION:
+        errors.append(f"unsupported schema_version '{schema_version}', expected {MANIFEST_VERSION}")
+
+    tooling = manifest_data.get("tooling")
+    if not isinstance(tooling, dict):
+        errors.append("'tooling' must be an object")
+    else:
+        if not isinstance(tooling.get("generator"), str) or not tooling.get("generator"):
+            errors.append("'tooling.generator' must be a non-empty string")
+        if not isinstance(tooling.get("created_at"), str) or not tooling.get("created_at"):
+            errors.append("'tooling.created_at' must be a non-empty string")
+
+    project = manifest_data.get("project")
+    if not isinstance(project, dict):
+        errors.append("'project' must be an object")
+    else:
+        if not isinstance(project.get("name"), str) or not project.get("name"):
+            errors.append("'project.name' must be a non-empty string")
+        if not isinstance(project.get("root"), str) or not project.get("root"):
+            errors.append("'project.root' must be a non-empty string")
+
+    features = manifest_data.get("features")
+    if not isinstance(features, dict):
+        errors.append("'features' must be an object")
+    else:
+        for feature_name in ("streampu", "aff3ct", "custom", "hardware", "uart_io"):
+            if not isinstance(features.get(feature_name), bool):
+                errors.append(f"'features.{feature_name}' must be a boolean")
+
+    uart = manifest_data.get("uart")
+    if not isinstance(uart, dict):
+        errors.append("'uart' must be an object")
+    else:
+        if not isinstance(uart.get("enabled"), bool):
+            errors.append("'uart.enabled' must be a boolean")
+        if not isinstance(uart.get("port"), str) or not uart.get("port"):
+            errors.append("'uart.port' must be a non-empty string")
+        if not isinstance(uart.get("baud"), int) or uart.get("baud") <= 0:
+            errors.append("'uart.baud' must be a positive integer")
+        if not isinstance(uart.get("frame_size"), int) or uart.get("frame_size") <= 0:
+            errors.append("'uart.frame_size' must be a positive integer")
+
+    pipeline = manifest_data.get("pipeline")
+    if not isinstance(pipeline, dict):
+        errors.append("'pipeline' must be an object")
+    else:
+        mode = pipeline.get("mode")
+        if mode not in {"minimal", "hw_only", "uart_only", "co_simulation"}:
+            errors.append("'pipeline.mode' must be one of: minimal, hw_only, uart_only, co_simulation")
+
+    operations_log = manifest_data.get("operations_log")
+    if not isinstance(operations_log, list) or not operations_log:
+        errors.append("'operations_log' must be a non-empty array")
+    else:
+        for index, operation in enumerate(operations_log):
+            if not isinstance(operation, dict):
+                errors.append(f"'operations_log[{index}]' must be an object")
+                continue
+            if not isinstance(operation.get("op"), str) or not operation.get("op"):
+                errors.append(f"'operations_log[{index}].op' must be a non-empty string")
+            if not isinstance(operation.get("timestamp"), str) or not operation.get("timestamp"):
+                errors.append(f"'operations_log[{index}].timestamp' must be a non-empty string")
+            if not isinstance(operation.get("args"), dict):
+                errors.append(f"'operations_log[{index}].args' must be an object")
+
+    return errors
+
+
+def validate_project_manifest_file(manifest_path):
+    """Load and validate a Hulotte project manifest file."""
+    manifest_file = Path(manifest_path).resolve()
+    if not manifest_file.exists():
+        raise ValueError(f"manifest file not found: {manifest_file}")
+
+    with open(manifest_file, "r", encoding="utf-8") as f:
+        manifest_data = json.load(f)
+
+    errors = validate_project_manifest_data(manifest_data)
+
+    project = manifest_data.get("project", {})
+    project_root = project.get("root")
+    if isinstance(project_root, str) and project_root:
+        project_dir = Path(project_root).resolve()
+    else:
+        project_dir = manifest_file.parent
+
+    expected_files = [
+        project_dir / "CMakeLists.txt",
+        project_dir / "README.md",
+        project_dir / "build.sh",
+        project_dir / ".gitignore",
+        project_dir / "src" / "main.cpp",
+    ]
+    for expected_file in expected_files:
+        if not expected_file.exists():
+            errors.append(f"missing generated file: {expected_file}")
+
+    if isinstance(project_root, str) and project_root:
+        if str(manifest_file.parent) != project_root:
+            errors.append(
+                f"manifest project.root mismatch: manifest is in '{manifest_file.parent}', declared root is '{project_root}'"
+            )
+
+    return errors, manifest_file
 
 
 def _require_bool(value, key_name):
@@ -449,6 +621,12 @@ fi
         f.write(render_template("README.md.j2", readme_context))
     log("✓ Created README.md")
 
+    manifest_payload = build_project_manifest(config, project_dir)
+    with open(project_dir / MANIFEST_FILENAME, "w", encoding="utf-8") as f:
+        json.dump(manifest_payload, f, indent=2)
+        f.write("\n")
+    log(f"✓ Created {MANIFEST_FILENAME}")
+
     if config.use_hw:
         with open(project_dir / "view_waves.sh", "w") as f:
             f.write(render_template("view_waves.sh.j2", {
@@ -675,6 +853,12 @@ if __name__ == "__main__":
     parser.add_argument("positional_name", nargs="?", help="Project name")
     parser.add_argument("--name", dest="flag_name", help="Project name (via flag)")
     parser.add_argument("--config", help="Path to a JSON project config file (versioned schema)")
+    parser.add_argument(
+        "--validate-manifest",
+        nargs="?",
+        const=MANIFEST_FILENAME,
+        help="Validate a hulotte.project.json file and exit",
+    )
     parser.add_argument("--output-dir", help="Override output directory")
     parser.add_argument("--tui", action="store_true", help="Run terminal UI wizard")
     parser.add_argument("--hoot", action="store_true", help="Enable startup sound")
@@ -706,6 +890,23 @@ if __name__ == "__main__":
 
     project_name = args.flag_name if args.flag_name else args.positional_name
     hulotte_dir = str(Path(__file__).resolve().parent)
+
+    if args.validate_manifest is not None:
+        manifest_path = args.validate_manifest
+        try:
+            errors, manifest_file = validate_project_manifest_file(manifest_path)
+        except Exception as e:
+            print(f"MANIFEST INVALID: {e}")
+            sys.exit(1)
+
+        if errors:
+            print(f"MANIFEST INVALID: {manifest_file}")
+            for error in errors:
+                print(f"  - {error}")
+            sys.exit(1)
+
+        print(f"MANIFEST OK: {manifest_file}")
+        sys.exit(0)
 
     if args.tui:
         try:
@@ -815,7 +1016,9 @@ if __name__ == "__main__":
     is_non_interactive = (project_name is not None)
     
     use_streampu = True
-    use_custom   = args.custom   if args.custom is not None else (True if is_non_interactive else None)
+    # Progressive migration: non-interactive default is now minimal.
+    # Legacy behavior remains available explicitly with --custom.
+    use_custom   = args.custom   if args.custom is not None else (False if is_non_interactive else None)
     use_aff3ct   = args.aff3ct   if args.aff3ct is not None else (False if is_non_interactive else None)
     use_hw       = args.hw       if args.hw is not None else (False if is_non_interactive else None)
     use_uart_io  = args.uart_io  if args.uart_io is not None else (False if is_non_interactive else None)
