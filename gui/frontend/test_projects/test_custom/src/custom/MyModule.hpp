@@ -1,0 +1,23 @@
+#pragma once
+#include <streampu.hpp>
+
+namespace spu {
+namespace module {
+
+class MyModule : public Stateful
+{
+private:
+    int n_elmts;
+
+public:
+    MyModule(const int n_elmts);
+    virtual ~MyModule() = default;
+    
+    virtual MyModule* clone() const override;
+
+protected:
+    void _process(const int* in, int* out, const int frame_id);
+};
+
+}
+}

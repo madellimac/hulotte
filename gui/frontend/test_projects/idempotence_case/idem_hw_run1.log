@@ -1,0 +1,53 @@
+
+======================================================================
+ADDING HARDWARE BLOCK TO PROJECT
+======================================================================
+
+Project: idempotence_case
+Location: /home/cleroux/PROJECTS/hulotte/gui/frontend/test_projects/idempotence_case
+New hardware block: IdemBlock
+
+Hardware block id: idem_hw_main
+
+✓ Wrote src/hw/IdemBlock.sv
+✓ Updated hulotte.project.json
+
+======================================================================
+HARDWARE BLOCK CREATED SUCCESSFULLY!
+======================================================================
+
+✨ FILES CREATED/UPDATED:
+   • src/hw/IdemBlock.sv (hardware implementation)
+   • hulotte.project.json (hardware_modules updated)
+   • src/main.cpp (not modified by design)
+
+⚠️  IMPORTANT - VERILATOR TRACE LIMITATION:
+   Only ONE hardware module can have tracing enabled at a time due to Verilator.
+   New modules are automatically created with trace DISABLED (enable_trace=false).
+   To enable tracing on a different module:
+       1. Set enable_trace=true for: hw_IdemBlock
+       2. Set enable_trace=false for all other hardware blocks
+
+📝 NEXT STEPS:
+
+1. IMPLEMENT YOUR LOGIC
+   Edit src/hw/IdemBlock.sv and replace the pass-through example
+   with your custom processing logic.
+
+   Interface (DO NOT CHANGE):
+      Input:  clk, reset, in_data[31:0], in_valid, out_ready
+      Output: in_ready, out_data[31:0], out_valid
+
+2. CONNECT THE BLOCK MANUALLY
+   Edit src/main.cpp and add:
+     - #include "VModel_IdemBlock.h"
+     - auto hw_idemblock = std::make_unique<VerilatorSimulation<VModel_IdemBlock>>(n_elmts, "trace_idemblock", false);
+     - socket bindings for hw_idemblock in the pipeline
+
+3. REBUILD
+   cd /home/cleroux/PROJECTS/hulotte/gui/frontend/test_projects/idempotence_case
+   rm -rf build && ./build.sh
+
+4. TEST
+   cd build && ./build_executable_name
+

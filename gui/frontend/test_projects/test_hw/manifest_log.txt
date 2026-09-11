@@ -1,0 +1,1 @@
+MANIFEST OK: /home/cleroux/PROJECTS/hulotte/gui/frontend/test_projects/test_hw/hulotte.project.json

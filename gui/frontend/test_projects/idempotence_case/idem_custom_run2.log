@@ -1,0 +1,16 @@
+
+======================================================================
+ADDING CUSTOM MODULE TO PROJECT
+======================================================================
+
+Project: idempotence_case
+Location: /home/cleroux/PROJECTS/hulotte/gui/frontend/test_projects/idempotence_case
+New module: IdemCustom
+
+Custom module id: idem_custom_main
+
+= No changes needed for src/custom/IdemCustom.hpp
+= No changes needed for src/custom/IdemCustom.cpp
+= Manifest already contains custom module 'idem_custom_main'
+
+No changes applied.

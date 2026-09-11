@@ -1,0 +1,16 @@
+
+======================================================================
+ADDING UART-WRAPPED HARDWARE BLOCK TO PROJECT
+======================================================================
+
+Project: idempotence_case
+Location: /home/cleroux/PROJECTS/hulotte/gui/frontend/test_projects/idempotence_case
+New UART hardware block: IdemUartHw
+
+UART hardware block id: idem_uart_hw_main
+
+= No changes needed for src/hw/IdemUartHwCore.sv
+= No changes needed for src/hw/IdemUartHw.sv
+= Manifest already contains UART hardware module 'idem_uart_hw_main'
+
+No changes applied.

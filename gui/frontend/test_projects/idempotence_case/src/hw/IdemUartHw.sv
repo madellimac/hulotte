@@ -1,0 +1,135 @@
+/*
+ * @file IdemUartHw.sv
+ * @brief Verilator simulation wrapper for IdemUartHwCore.
+ *
+ * External 32-bit ready/valid interface for StreamPU/VerilatorSimulation.
+ * Internally wraps the FPGA core between two host-side UART transceivers
+ * connected by simulation wires:
+ *
+ *   in_data(rv) → host_uart_tx ──[sim wire]──► IdemUartHwCore ──[sim wire]──► host_uart_rx → out_data(rv)
+ *
+ * Only IdemUartHwCore needs to be synthesized for FPGA deployment.
+ */
+
+module IdemUartHw #(
+    parameter int FRAME_SIZE      = 16,
+    parameter int BAUDRATE        = 10000000,
+    parameter int CLOCK_FREQUENCY = 100000000
+)(
+    input  logic        clk,
+    input  logic        reset,
+
+    // External ready/valid input
+    input  logic [31:0] in_data,
+    input  logic        in_valid,
+    output logic        in_ready,
+
+    // External ready/valid output
+    output logic [31:0] out_data,
+    output logic        out_valid,
+    input  logic        out_ready
+);
+
+    localparam int CNT_W = $clog2(FRAME_SIZE + 1);
+    typedef logic [CNT_W-1:0] cnt_t;
+    localparam cnt_t FRAME_LAST = cnt_t'(FRAME_SIZE - 1);
+
+    // -------------------------------------------------------------------------
+    // Simulation UART cables
+    // -------------------------------------------------------------------------
+    logic sim_cable_host_to_fpga;
+    logic sim_cable_fpga_to_host;
+
+    // -------------------------------------------------------------------------
+    // Host side: feed external ready/valid input into the UART line
+    // -------------------------------------------------------------------------
+    logic host_fifo_full, host_fifo_afull, host_fifo_empty;
+    logic host_tx_fire;
+
+    assign in_ready    = !reset && !host_fifo_full;
+    assign host_tx_fire = in_valid && in_ready;
+
+    UART_fifoed_send #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) host_uart_tx (
+        .clk_100MHz(clk),
+        .reset(reset),
+        .dat_en(host_tx_fire),
+        .dat(in_data[7:0]),
+        .TX(sim_cable_host_to_fpga),
+        .fifo_empty(host_fifo_empty),
+        .fifo_afull(host_fifo_afull),
+        .fifo_full(host_fifo_full)
+    );
+
+    // -------------------------------------------------------------------------
+    // FPGA core: the module to synthesize for FPGA deployment
+    // -------------------------------------------------------------------------
+    IdemUartHwCore #(
+        .BAUDRATE(BAUDRATE),
+        .CLOCK_FREQUENCY(CLOCK_FREQUENCY)
+    ) fpga_core (
+        .clk(clk),
+        .reset(reset),
+        .uart_rx(sim_cable_host_to_fpga),
+        .uart_tx(sim_cable_fpga_to_host)
+    );
+
+    // -------------------------------------------------------------------------
+    // Host side: receive transformed bytes from the FPGA core UART output
+    // -------------------------------------------------------------------------
+    logic [7:0] host_rx_data;
+    logic       host_rx_valid;
+
+    UART_recv #(
+        .baudrate(BAUDRATE),
+        .clock_frequency(CLOCK_FREQUENCY)
+    ) host_uart_rx (
+        .clk(clk),
+        .reset(reset),
+        .rx(sim_cable_fpga_to_host),
+        .dat(host_rx_data),
+        .dat_en(host_rx_valid)
+    );
+
+    // -------------------------------------------------------------------------
+    // Output register-slice to honor out_ready backpressure
+    // -------------------------------------------------------------------------
+    logic [31:0] out_hold_data;
+    logic        out_hold_valid;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            out_hold_valid <= 1'b0;
+            out_hold_data  <= '0;
+        end else if (!out_hold_valid || out_ready) begin
+            out_hold_valid <= host_rx_valid;
+            if (host_rx_valid)
+                out_hold_data <= {24'b0, host_rx_data};
+        end
+    end
+
+    assign out_data  = out_hold_data;
+    assign out_valid = out_hold_valid;
+
+    // -------------------------------------------------------------------------
+    // Frame counters (debug / waveform)
+    // -------------------------------------------------------------------------
+    cnt_t cnt_in, cnt_out;
+
+    always_ff @(posedge clk) begin
+        if (reset)
+            cnt_in <= '0;
+        else if (host_tx_fire)
+            cnt_in <= (cnt_in == FRAME_LAST) ? '0 : cnt_in + 1'b1;
+    end
+
+    always_ff @(posedge clk) begin
+        if (reset)
+            cnt_out <= '0;
+        else if (out_valid && out_ready)
+            cnt_out <= (cnt_out == FRAME_LAST) ? '0 : cnt_out + 1'b1;
+    end
+
+endmodule

@@ -1,0 +1,24 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found Boost: /usr/include
+-- Configuring done (0.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/cleroux/PROJECTS/hulotte/gui/frontend/test_projects/test_minimal/build
+[ 11%] Building CXX object CMakeFiles/test_minimal_common.dir/common/sw/Packer.cpp.o
+[ 22%] Building CXX object CMakeFiles/test_minimal_common.dir/common/sw/UartFrameIO.cpp.o
+[ 33%] Building CXX object CMakeFiles/test_minimal_common.dir/common/sw/SerialPort.cpp.o
+[ 44%] Building CXX object CMakeFiles/test_minimal_common.dir/common/sw/MySource.cpp.o
+[ 55%] Building CXX object CMakeFiles/test_minimal_common.dir/common/sw/Comparator.cpp.o
+[ 66%] Building CXX object CMakeFiles/test_minimal_common.dir/common/sw/MySource_binary.cpp.o
+[ 77%] Linking CXX static library libtest_minimal_common.a
+[ 77%] Built target test_minimal_common
+[ 88%] Building CXX object CMakeFiles/test_minimal.dir/src/main.cpp.o
+[100%] Linking CXX executable test_minimal
+[100%] Built target test_minimal
+
+Build successful!
+Run: ./build/test_minimal

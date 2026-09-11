@@ -1,0 +1,41 @@
+#include "MyModule.hpp"
+#include <algorithm>
+#include <iostream>
+
+using namespace spu;
+using namespace spu::module;
+
+MyModule::MyModule(const int n_elmts)
+: Stateful(), n_elmts(n_elmts)
+{
+    const std::string name = "MyModule";
+    this->set_name(name);
+    this->set_short_name(name);
+
+    auto &t = this->create_task("process");
+    auto p_in  = this->create_socket_in <int>(t, "in",  n_elmts);
+    auto p_out = this->create_socket_out<int>(t, "out", n_elmts);
+
+    this->create_codelet(t, [p_in, p_out](Module &m, runtime::Task &t, const size_t frame_id) -> int
+    {
+        auto &mod = static_cast<MyModule&>(m);
+        mod._process(static_cast<int*>(t[p_in].get_dataptr()),
+                     static_cast<int*>(t[p_out].get_dataptr()),
+                     frame_id);
+        return runtime::status_t::SUCCESS;
+    });
+}
+
+MyModule* MyModule::clone() const
+{
+    auto m = new MyModule(*this);
+    m->deep_copy(*this);
+    return m;
+}
+
+void MyModule::_process(const int* in, int* out, const int frame_id)
+{
+    // Minimal example: copy input to output and print trace
+    // std::cout << "MyModule processing frame " << frame_id << std::endl;
+    std::copy(in, in + this->n_elmts, out);
+}
