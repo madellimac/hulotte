@@ -10,6 +10,7 @@ import {
   stopProject,
   fetchProjectStatus,
   fetchProjectLogs,
+  refreshProject,
 } from './services/api';
 import { ProjectPanel } from './components/ProjectPanel';
 import { PipelinePanel } from './components/PipelinePanel';
@@ -76,6 +77,13 @@ export const App: React.FC = () => {
     if (!selectedProject) return;
     try {
       await generateProject(selectedProject.name);
+      const refreshedProject = await refreshProject(selectedProject.name);
+      setSelectedProject(refreshedProject);
+      setProjects((currentProjects) =>
+        currentProjects.map((project) =>
+          project.name === refreshedProject.name ? refreshedProject : project,
+        ),
+      );
       const l = await fetchProjectLogs(selectedProject.name);
       setLogs(l.logs);
     } catch (err: any) {
@@ -88,6 +96,7 @@ export const App: React.FC = () => {
     try {
       await buildProject(selectedProject.name);
       setStatus('building');
+      await refreshSelectedProject();
     } catch (err: any) {
       alert(err.message);
     }
@@ -98,6 +107,7 @@ export const App: React.FC = () => {
     try {
       await runProject(selectedProject.name);
       setStatus('running');
+      await refreshSelectedProject();
     } catch (err: any) {
       alert(err.message);
     }
@@ -108,9 +118,21 @@ export const App: React.FC = () => {
     try {
       await stopProject(selectedProject.name);
       setStatus('idle');
+      await refreshSelectedProject();
     } catch (err: any) {
       alert(err.message);
     }
+  };
+
+  const refreshSelectedProject = async () => {
+    if (!selectedProject) return;
+    const refreshedProject = await refreshProject(selectedProject.name);
+    setSelectedProject(refreshedProject);
+    setProjects((currentProjects) =>
+      currentProjects.map((project) =>
+        project.name === refreshedProject.name ? refreshedProject : project,
+      ),
+    );
   };
 
   return (

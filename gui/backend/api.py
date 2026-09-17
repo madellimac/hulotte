@@ -18,6 +18,10 @@ class CreateProjectRequest(BaseModel):
     streampu_root: Optional[str] = None
     aff3ct_root: Optional[str] = None
 
+
+class OpenProjectFileRequest(BaseModel):
+    path: str = Field(..., min_length=1)
+
 @router.get("/projects", response_model=List[Dict[str, Any]])
 def get_projects():
     """List all available Hulotte projects."""
@@ -42,13 +46,30 @@ def get_project(name: str):
 
 @router.post("/projects/{name}/generate")
 def generate_project(name: str):
-    """Re-generate project or validate manifest."""
-    project = services.get_project(name)
-    if not project:
-        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
-    # In V1, create_project already generated all files and hulotte.project.json.
-    services.process_manager.append_log(name, f"[GUI] Project '{name}' files verified and manifest loaded.\n")
-    return {"status": "success", "message": f"Project '{name}' generated/verified"}
+    """Validate the project manifest and generated files without modifying them."""
+    try:
+        result = services.validate_project(name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if not result["valid"]:
+        raise HTTPException(status_code=422, detail=result)
+    return {"status": "success", "message": f"Project '{name}' validated", **result}
+
+
+@router.post("/projects/{name}/open-file")
+def open_project_file(name: str, req: OpenProjectFileRequest):
+    """Open a project file using the local system's default editor."""
+    try:
+        result = services.open_project_file(name, req.path)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error))
+    except RuntimeError as error:
+        raise HTTPException(status_code=500, detail=str(error))
+    return {"status": "opened", **result}
 
 @router.post("/projects/{name}/build")
 def build_project(name: str):

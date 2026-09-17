@@ -4,11 +4,12 @@
 
 **Hulotte** (*Hybrid Unified Libraries for Opensource TesTing of Embedded systems*) est un framework modulaire en C++17, SystemVerilog et Python conçu pour le prototypage rapide, la simulation, le test et la co-simulation matérielle/logicielle de chaînes de traitement de données (traitement du signal, codage de canal, blocs IP matériels).
 
-Le projet s'appuie sur quatre piles technologiques principales :
+Le projet s'appuie sur cinq piles technologiques principales :
 1. **StreamPU** : Moteur d'exécution de graphes de tâches (dataflow) basé sur des sockets d'entrée/sortie.
 2. **AFF3CT** : Bibliothèque de codage de canal (*Forward Error Correction* : Reed-Solomon, Polar, LDPC, BCH, etc.) intégrant StreamPU.
 3. **Verilator** : Simulateur C++ pour SystemVerilog, permettant d'encapsuler des blocs IP matériels dans des tâches C++ StreamPU (*co-simulation logicielle/matérielle*).
 4. **Boost ASIO / UART** : Pilotes de communication série pour échanger des trames de données avec des FPGA ou du matériel réel (*Hardware-in-the-Loop*).
+5. **GUI Hulotte** (React/TypeScript/Vite + FastAPI) : Interface graphique optionnelle de supervision qui pilote le CLI existant sans le remplacer (création de projet, build, run, inspection du pipeline).
 
 ---
 
@@ -23,8 +24,19 @@ hulotte/
 ├── install_dependencies.py    # Script d'installation automatique d'AFF3CT et StreamPU
 ├── hulotte_utils.py           # Fonctions utilitaires partagées (ANSI, logs, sons, paths)
 ├── test.sh                    # Suite de tests d'intégration et de non-régression
+├── hulotte_gui.sh              # Lancement unifié de la GUI (backend FastAPI + frontend Vite)
 ├── README.md                  # Documentation utilisateur
 ├── project_config.example.json# Exemple de fichier de configuration de projet
+│
+├── gui/                        # Interface graphique optionnelle (ne remplace pas le CLI)
+│   ├── backend/                # API FastAPI (Python) : appelle les scripts CLI existants
+│   │   ├── main.py             # Point d'entrée Uvicorn + middleware CORS
+│   │   ├── api.py              # Routes REST (/api/projects, /generate, /build, /run, /stop, ...)
+│   │   └── services.py         # Scan des manifestes, appels subprocess vers create_project.py/build.sh
+│   └── frontend/                # Application React + TypeScript + Vite
+│       └── src/
+│           ├── App.tsx                       # Orchestration générale + polling statut/logs
+│           └── components/                   # ProjectPanel, PipelinePanel, ActionsPanel, ConsolePanel
 │
 ├── templates/                 # Squelettes Jinja2 utilisés par les scripts de génération
 │   ├── CMakeLists.txt.j2      # Modèle CMake avec détection automatique Verilator & StreamPU
@@ -129,3 +141,41 @@ Exécute la batterie de tests d'intégration (génération d'une matrice de 8 pr
 - `0` : Modification appliquée avec succès.
 - `2` : Idempotent no-op (le module/id existe déjà avec la même définition).
 - `1` : Erreur (ex: échec de validation, conflit de nom sans `--force`, fichier manquant).
+
+---
+
+## 7. GUI Hulotte (V1)
+
+Une interface graphique optionnelle complète le CLI **sans le remplacer** : elle appelle les mêmes scripts (`create_project.py`, `build.sh`, binaires compilés) et utilise `hulotte.project.json` comme unique source de vérité (aucune configuration parallèle n'est stockée).
+
+### 7.1 Lancement
+```bash
+./hulotte_gui.sh
+```
+Démarre en une seule commande le backend FastAPI (`http://localhost:8000`, `--reload`) et le frontend Vite (`http://localhost:5173`, hot-reload). Chaque processus est lancé dans son propre groupe de processus (`setsid`) afin qu'un `Ctrl+C` arrête proprement uniquement les processus lancés par ce script, sans affecter d'autres instances Uvicorn/Vite indépendantes.
+
+### 7.2 Architecture
+- **Backend** ([gui/backend/](gui/backend/)) : FastAPI + Uvicorn. `services.py` scanne les répertoires de projets (`projects/`, `test_projects/`) à la recherche de `hulotte.project.json`, et invoque `create_project.py` / `build.sh` / le binaire compilé via `subprocess`. Les logs et le statut (`idle`/`building`/`running`/`error`) sont conservés en mémoire par projet.
+- **Frontend** ([gui/frontend/](gui/frontend/)) : React + TypeScript + Vite, avec quatre panneaux principaux :
+  - **ProjectPanel** : création de projet (formulaire) et sélection d'un projet existant.
+  - **PipelinePanel** : affichage du pipeline sous forme de blocs cliquables ; un clic affiche les détails du module (id, type, `enabled`, fichiers source/wrapper/core) directement issus du manifeste.
+  - **ActionsPanel** : boutons `Generate` / `Build` / `Run` / `Stop`.
+  - **ConsolePanel** : affichage des logs en temps réel (polling 1s), défilement limité à la zone console.
+
+### 7.3 API REST minimale
+```
+GET  /api/projects                    # Liste des projets (manifeste + pipeline_nodes)
+POST /api/projects                    # Crée un projet (appelle create_project.py)
+GET  /api/projects/{name}             # Détails d'un projet
+POST /api/projects/{name}/generate    # Vérifie/recharge le manifeste
+POST /api/projects/{name}/build       # Lance ./build.sh en tâche de fond
+POST /api/projects/{name}/run         # Exécute le binaire compilé
+POST /api/projects/{name}/stop        # Arrête le process build/run en cours
+GET  /api/projects/{name}/status      # Statut courant
+GET  /api/projects/{name}/logs        # Logs accumulés
+```
+
+### 7.4 Limites connues (V1)
+- Pas d'édition d'un projet existant depuis la GUI (création uniquement) ; les modules (`add_custom_module.py`, `add_hardware_module.py`, `add_uart_hw_module.py`) ne sont pas encore pilotables depuis l'interface.
+- Les logs sont conservés en mémoire côté backend (perdus au redémarrage d'Uvicorn).
+- Le pipeline affiché reflète la présence des modules déclarés dans le manifeste, pas nécessairement leur câblage réel des sockets dans `main.cpp`.

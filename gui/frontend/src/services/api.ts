@@ -22,12 +22,28 @@ export interface ProjectManifest {
   };
 }
 
+export interface PipelineNode {
+  name: string;
+  type: string;
+  id?: string;
+  enabled?: boolean;
+  generic?: boolean;
+  // Optional manifest fields, present depending on module kind (custom/hardware/uart_wrapped)
+  module_name?: string;
+  class_name?: string;
+  kind?: string;
+  source?: string;
+  header?: string;
+  wrapper_source?: string;
+  core_source?: string;
+}
+
 export interface ProjectData {
   name: string;
   path: string;
   manifest: ProjectManifest;
   status: 'idle' | 'building' | 'running' | 'error';
-  pipeline_nodes?: string[];
+  pipeline_nodes?: PipelineNode[];
 }
 
 export interface CreateProjectPayload {
@@ -42,6 +58,12 @@ export interface CreateProjectPayload {
   uart_frame_size?: number;
 }
 
+export interface ProjectValidationResult {
+  valid: boolean;
+  manifest: string;
+  errors: string[];
+}
+
 const API_BASE = '/api';
 
 export async function fetchProjects(): Promise<ProjectData[]> {
@@ -53,6 +75,19 @@ export async function fetchProjects(): Promise<ProjectData[]> {
 export async function fetchProject(name: string): Promise<ProjectData> {
   const res = await fetch(`${API_BASE}/projects/${name}`);
   if (!res.ok) throw new Error(`Project ${name} not found`);
+  return res.json();
+}
+
+export async function openProjectFile(name: string, path: string): Promise<{ path: string }> {
+  const res = await fetch(`${API_BASE}/projects/${name}/open-file`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Impossible d\'ouvrir le fichier');
+  }
   return res.json();
 }
 
@@ -72,7 +107,16 @@ export async function createProject(payload: CreateProjectPayload): Promise<Proj
 
 export async function generateProject(name: string): Promise<void> {
   const res = await fetch(`${API_BASE}/projects/${name}/generate`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to generate project');
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail?.errors?.join('\n') || error.detail || 'Failed to validate project');
+  }
+}
+
+export async function refreshProject(name: string): Promise<ProjectData> {
+  const res = await fetch(`${API_BASE}/projects/${name}`);
+  if (!res.ok) throw new Error(`Project ${name} not found`);
+  return res.json();
 }
 
 export async function buildProject(name: string): Promise<void> {

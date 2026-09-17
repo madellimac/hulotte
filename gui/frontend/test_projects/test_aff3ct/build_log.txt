@@ -15,11 +15,11 @@ CMake Warning:
 -- Configuring done (0.2s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/cleroux/PROJECTS/hulotte/gui/frontend/test_projects/test_aff3ct/build
-[ 11%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/Packer.cpp.o
 [ 22%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/UartFrameIO.cpp.o
-[ 33%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/Comparator.cpp.o
-[ 44%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/MySource.cpp.o
-[ 55%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/SerialPort.cpp.o
+[ 22%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/MySource.cpp.o
+[ 33%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/SerialPort.cpp.o
+[ 44%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/Packer.cpp.o
+[ 55%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/Comparator.cpp.o
 [ 66%] Building CXX object CMakeFiles/test_aff3ct_common.dir/common/sw/MySource_binary.cpp.o
 [ 77%] Linking CXX static library libtest_aff3ct_common.a
 [ 77%] Built target test_aff3ct_common
