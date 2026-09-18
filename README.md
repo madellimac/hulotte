@@ -11,139 +11,58 @@ Modular framework to build processing chains with StreamPU and AFF3CT.
 
 ## 1) Installation
 
-### Prerequisites
-- GCC/Clang with C++17 support
-- CMake >= 3.16
-- Git
-- Python >= 3.9
-
-### Installation de Hulotte
-
-Install Hulotte from the repository to make the `hulotte` command available
-from any directory:
+From the Hulotte repository root, install the native dependencies with the
+CMake preset that matches your needs:
 
 ```bash
-python3 -m pip install .
+cmake --preset streampu-only
+cmake --build --preset streampu-only
 ```
 
-For development without installation, use:
+The available presets are:
+
+- `streampu-only`: standalone StreamPU, recommended for graph projects;
+- `aff3ct-only`: AFF3CT and its bundled StreamPU;
+- `streampu-aff3ct`: standalone StreamPU and AFF3CT;
+- `all-dependencies`: standalone StreamPU, AFF3CT and optional Surfer support.
+
+Install Hulotte and its Python dependencies in a virtual environment:
 
 ```bash
-python3 -m framework.hulotte --help
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
 ```
 
-The package installs the Python dependencies (`PyYAML` and `Jinja2`) and the
-catalog and templates required by generated projects.
-
-### Automated installation (recommended)
-
-If AFF3CT and/or StreamPU are not installed, you can use the automated installer:
-
-```bash
-python3 framework/install_dependencies.py
-```
-
-After installing the native dependencies, run the CLI directly:
+Verify the installation:
 
 ```bash
 hulotte --help
+```
+
+For the `streampu-only` preset, configure StreamPU with the source path used
+by the preset:
+
+```bash
+hulotte config set streampu-root build/dependencies/streampu-only/dependencies/src/streampu
 hulotte config show
-hulotte generate --project-root tests/unit/fixtures/minimal_project
 ```
 
-The unit tests can be run from the repository with:
+The CMake build currently generates the dependency manifest in the selected
+build directory. Automatic import of that manifest into Hulotte configuration
+will be added in a later step.
+
+You can now create and build a graph project:
 
 ```bash
-python3 -m unittest discover -s tests/unit -v
+hulotte init "$HOME/projects/my_pipeline"
+cd "$HOME/projects/my_pipeline"
+hulotte generate
+hulotte build
 ```
 
-### Configuration de StreamPU
-
-Hulotte validates a StreamPU installation by checking for:
-
-- `include/streampu.hpp`
-- `build/lib/libstreampu.a`
-
-Store the installation once in the user configuration:
-
-```bash
-hulotte config set streampu-root /path/to/streampu
-hulotte config show
-hulotte config unset streampu-root
-```
-
-The configuration is stored at `$XDG_CONFIG_HOME/hulotte/config.yaml`, or at
-`~/.config/hulotte/config.yaml` when `XDG_CONFIG_HOME` is not set. The
-`HULOTTE_STREAMPU_ROOT` environment variable is also supported.
-
-StreamPU resolution uses this priority:
-
-1. an explicit `--streampu-root` option;
-2. the project configuration;
-3. the user configuration;
-4. `HULOTTE_STREAMPU_ROOT` or `STREAMPU_ROOT`;
-5. standard local or system paths.
-
-With a local StreamPU build, the software-only fixture can also be compiled
-and executed:
-
-```bash
-hulotte build \
-    --project-root tests/unit/fixtures/minimal_project \
-    --streampu-root /path/to/streampu
-```
-
-The command generates a minimal CMake project under `generated/build/`. The
-graph workflow supports StreamPU, custom modules, and the initial AFF3CT RS
-catalog entry; Verilator and UART remain part of the legacy workflow for now.
-
-AFF3CT RS support is also available in the graph catalog. It uses the AFF3CT
-embedded StreamPU headers and requires both roots:
-
-```bash
-hulotte build \
-    --project-root /path/to/aff3ct_project \
-    --streampu-root /path/to/streampu \
-    --aff3ct-root /path/to/aff3ct
-```
-
-The initial catalog supports `Encoder_RS<int>` and
-`Decoder_RS_std<int, float>`, sharing one `RS_polynomial_generator`.
-Standalone StreamPU is not linked into an AFF3CT target; it is used only to
-locate the compatible `cpptrace` library.
-
-The script will:
-- Check prerequisites (git, cmake, g++)
-- Ask if you want to install AFF3CT (with StreamPU compiled statically inside)
-- Ask if you want to install StreamPU standalone
-- Clone, configure, and compile libraries
-
-### Manual installation
-
-#### AFF3CT (with StreamPU compiled statically)
-
-```bash
-git clone --recursive https://github.com/aff3ct/aff3ct.git
-cd aff3ct && mkdir build && cd build
-cmake .. -DAFF3CT_COMPILE_STATIC_LIB=ON -DSPU_COMPILE_STATIC_LIB=ON
-make -j
-```
-
-Expected files:
-- `libaff3ct-*.a` in `.../vendor/aff3ct/build/lib/`
-- `libstreampu.a` in `.../vendor/aff3ct/build/lib/streampu/lib/`
-
-#### StreamPU standalone
-
-```bash
-git clone --recursive https://github.com/aff3ct/streampu.git
-cd streampu && mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DSPU_COMPILE_STATIC_LIB=ON
-make -j
-```
-
-Expected file:
-- `libstreampu.a` in `.../vendor/streampu/build/lib/`
+The legacy `framework/install_dependencies.py` script is still available for
+compatibility, but CMake presets are the recommended installation method.
 
 ## 2) CLI graph workflow
 

@@ -466,24 +466,17 @@ def setup_python_environment(hulotte_root):
     else:
         print_success(f"Virtual environment found at: {to_relative_path(venv_dir)}")
         
-    # Install dependencies
-    print_info("Installing Python dependencies (This may take a moment)...")
-    
-    # Dependencies list
-    packages = ["jinja2", "pyyaml"]
-    
     # Pip inside venv
     pip_cmd = venv_dir / "bin" / "pip"
     
     try:
-        # Upgrade pip first
+        print_info("Installing Hulotte and Python dependencies (This may take a moment)...")
         subprocess.run([str(pip_cmd), "install", "--upgrade", "pip"], 
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # Install packages
-        for package in packages:
-            print_info(f"Installing {package}...")
-            subprocess.run([str(pip_cmd), "install", package], check=True)
+
+        # Install the package from the repository so its declared dependencies
+        # and the global `hulotte` entry point stay in sync with pyproject.toml.
+        subprocess.run([str(pip_cmd), "install", str(hulotte_root)], check=True)
             
         print_success("Python dependencies installed successfully")
         return venv_dir
@@ -500,9 +493,8 @@ def main(hoot=False):
         play_owl_hoot()
     print_header("Hulotte Dependencies Installer")
     
-    # Get Hulotte root
-    # Use the directory where this script is located, not necessarily CWD
-    hulotte_root = Path(__file__).resolve().parent
+    # Get the repository root, not the framework package directory.
+    hulotte_root = Path(__file__).resolve().parent.parent
     print_info(f"Hulotte root: {to_relative_path(hulotte_root)}")
     
     # Check prerequisites
@@ -584,9 +576,9 @@ def main(hoot=False):
         activate_path = venv_dir / "bin" / "activate"
         print(f"  1. Activate the python environment:")
         print(f"     source {to_relative_path(activate_path)}")
-    print("  2. Run: python3 create_project.py")
-    print("  3. Follow the prompts to create your project")
-    print("  4. Use the paths shown above when asked")
+    print("  2. Run: hulotte --help")
+    print("  3. Configure StreamPU: hulotte config set streampu-root /path/to/streampu")
+    print("  4. Create a graph project: hulotte init /path/to/project")
     print("="*60 + "\n")
     
     return 0

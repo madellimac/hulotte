@@ -1,0 +1,68 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "streampu-only",
+      "displayName": "StreamPU only",
+      "description": "Build standalone StreamPU for Hulotte graph projects.",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/dependencies/streampu-only",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "HULOTTE_INSTALL_STREAMPU": "ON",
+        "HULOTTE_INSTALL_AFF3CT": "OFF",
+        "HULOTTE_INSTALL_SURFER": "OFF"
+      }
+    },
+    {
+      "name": "aff3ct-only",
+      "displayName": "AFF3CT only",
+      "description": "Build AFF3CT with its bundled StreamPU.",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/dependencies/aff3ct-only",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "HULOTTE_INSTALL_STREAMPU": "OFF",
+        "HULOTTE_INSTALL_AFF3CT": "ON",
+        "HULOTTE_INSTALL_SURFER": "OFF"
+      }
+    },
+    {
+      "name": "streampu-aff3ct",
+      "displayName": "StreamPU and AFF3CT",
+      "description": "Build standalone StreamPU and AFF3CT.",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/dependencies/streampu-aff3ct",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "HULOTTE_INSTALL_STREAMPU": "ON",
+        "HULOTTE_INSTALL_AFF3CT": "ON",
+        "HULOTTE_INSTALL_SURFER": "OFF"
+      }
+    },
+    {
+      "name": "all-dependencies",
+      "displayName": "All dependencies",
+      "description": "Build StreamPU and AFF3CT; reserve optional Surfer support.",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/dependencies/all",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "HULOTTE_INSTALL_STREAMPU": "ON",
+        "HULOTTE_INSTALL_AFF3CT": "ON",
+        "HULOTTE_INSTALL_SURFER": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "streampu-only", "configurePreset": "streampu-only" },
+    { "name": "aff3ct-only", "configurePreset": "aff3ct-only" },
+    { "name": "streampu-aff3ct", "configurePreset": "streampu-aff3ct" },
+    { "name": "all-dependencies", "configurePreset": "all-dependencies" }
+  ]
+}
