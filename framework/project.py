@@ -66,6 +66,10 @@ def build_project(
     streampu_root = streampu_root or project_config.get("dependencies", {}).get("streampu_root")
     aff3ct_root = aff3ct_root or project_config.get("dependencies", {}).get("aff3ct_root")
     hulotte_root = hulotte_root or project_config.get("hulotte", {}).get("root")
+    if hulotte_root is not None:
+        hulotte_root = Path(hulotte_root).expanduser().resolve()
+    if hulotte_root is not None:
+        hulotte_root = Path(hulotte_root).expanduser().resolve()
     generated_main = generate_project(root, hulotte_root=hulotte_root)
     pipeline = load_pipeline(_resolve_path(root, None, "pipeline.yaml"))
     uses_aff3ct = any(module.kind == "aff3ct" for module in pipeline.modules.values())
@@ -78,7 +82,13 @@ def build_project(
     generated_root = generated_main.parent
     cmake_file = generated_root / "CMakeLists.txt"
     cmake_file.write_text(
-        _cmake_project(root.name, stream_root, aff3ct_root=aff_root), encoding="utf-8"
+        _cmake_project(
+            root.name,
+            stream_root,
+            aff3ct_root=aff_root,
+            hulotte_root=hulotte_root,
+        ),
+        encoding="utf-8",
     )
 
     build_dir = _resolve_path(root, build_path, "generated/build")
@@ -148,10 +158,18 @@ def _resolve_aff3ct_root(root: Path, configured: str | Path | None) -> Path:
 
 
 def _cmake_project(
-    project_name: str, streampu_root: Path, aff3ct_root: Path | None = None
+    project_name: str,
+    streampu_root: Path,
+    aff3ct_root: Path | None = None,
+    hulotte_root: Path | None = None,
 ) -> str:
     if aff3ct_root is not None:
-        return _cmake_aff3ct_project(project_name, aff3ct_root, streampu_root)
+        return _cmake_aff3ct_project(project_name, aff3ct_root, streampu_root, hulotte_root)
+    shared_include_dir = ''
+    shared_sources = ''
+    if hulotte_root is not None:
+        shared_include_dir = f'\nset(HULOTTE_ROOT "{hulotte_root}")\nset(HULOTTE_SHARED_INCLUDE_DIR "{hulotte_root / "framework" / "common" / "sw"}")\n'
+        shared_sources = '\nfile(GLOB HULOTTE_SHARED_SOURCES "${HULOTTE_ROOT}/framework/common/sw/*.cpp")\n'
     return f'''cmake_minimum_required(VERSION 3.16)
 project({project_name} LANGUAGES CXX)
 
@@ -167,12 +185,13 @@ set(STREAMPU_INCLUDE_DIRS
     ${{STREAMPU_ROOT}}/lib/json/include
     ${{STREAMPU_ROOT}}/lib/cpptrace/include
 )
-
+{shared_include_dir}
 file(GLOB CUSTOM_SOURCES "${{CMAKE_CURRENT_SOURCE_DIR}}/../src/custom/*.cpp")
-add_executable({project_name} main.cpp ${{CUSTOM_SOURCES}})
+{shared_sources}add_executable({project_name} main.cpp ${{CUSTOM_SOURCES}} ${{HULOTTE_SHARED_SOURCES}})
 target_include_directories({project_name} PRIVATE
     ${{CMAKE_CURRENT_SOURCE_DIR}}/../src
     ${{STREAMPU_INCLUDE_DIRS}}
+    ${{HULOTTE_SHARED_INCLUDE_DIR}}
 )
 target_compile_definitions({project_name} PRIVATE SPU_STACKTRACE)
 target_link_libraries({project_name} PRIVATE
@@ -184,10 +203,18 @@ target_link_libraries({project_name} PRIVATE
 
 
 def _cmake_aff3ct_project(
-    project_name: str, aff3ct_root: Path, cpptrace_root: Path
+    project_name: str,
+    aff3ct_root: Path,
+    cpptrace_root: Path,
+    hulotte_root: Path | None = None,
 ) -> str:
     libraries = sorted((aff3ct_root / "build" / "lib").glob("libaff3ct*.a"))
     aff3ct_library = libraries[0]
+    shared_include_dir = ''
+    shared_sources = ''
+    if hulotte_root is not None:
+        shared_include_dir = f'\nset(HULOTTE_ROOT "{hulotte_root}")\nset(HULOTTE_SHARED_INCLUDE_DIR "{hulotte_root / "framework" / "common" / "sw"}")\n'
+        shared_sources = '\nfile(GLOB HULOTTE_SHARED_SOURCES "${HULOTTE_ROOT}/framework/common/sw/*.cpp")\n'
     return f'''cmake_minimum_required(VERSION 3.16)
 project({project_name} LANGUAGES CXX)
 
@@ -197,8 +224,9 @@ find_package(Threads REQUIRED)
 
 set(AFF3CT_ROOT "{aff3ct_root}")
 set(CPPTRACE_ROOT "{cpptrace_root}")
+{shared_include_dir}
 file(GLOB CUSTOM_SOURCES "${{CMAKE_CURRENT_SOURCE_DIR}}/../src/custom/*.cpp")
-add_executable({project_name} main.cpp ${{CUSTOM_SOURCES}})
+{shared_sources}add_executable({project_name} main.cpp ${{CUSTOM_SOURCES}} ${{HULOTTE_SHARED_SOURCES}})
 target_include_directories({project_name} PRIVATE
     ${{AFF3CT_ROOT}}/include
     ${{AFF3CT_ROOT}}/src
@@ -210,6 +238,7 @@ target_include_directories({project_name} PRIVATE
     ${{AFF3CT_ROOT}}/lib/streampu/lib/json/include
     ${{CPPTRACE_ROOT}}/lib/cpptrace/include
     ${{CMAKE_CURRENT_SOURCE_DIR}}/../src
+    ${{HULOTTE_SHARED_INCLUDE_DIR}}
 )
 target_compile_definitions({project_name} PRIVATE
     AFF3CT_MULTI_PREC AFF3CT_POLAR_BIT_PACKING HULOTTE_USE_AFF3CT
