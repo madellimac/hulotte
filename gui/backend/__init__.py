@@ -1,1 +1,0 @@
-# Hulotte GUI Backend Package

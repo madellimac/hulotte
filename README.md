@@ -21,8 +21,47 @@ Modular framework to build processing chains with StreamPU and AFF3CT.
 If AFF3CT and/or StreamPU are not installed, you can use the automated installer:
 
 ```bash
-python3 install_dependencies.py
+python3 framework/install_dependencies.py
 ```
+
+After installation, use Hulotte's virtual environment so that PyYAML and
+Jinja2 are available:
+
+```bash
+source .venv/bin/activate
+python -m unittest discover -s tests/unit -v
+python framework/hulotte.py generate --project-root tests/unit/fixtures/minimal_project
+```
+
+Alternatively, prefix commands with `.venv/bin/python` without activating it.
+
+With a local StreamPU build, the software-only fixture can also be compiled
+and executed:
+
+```bash
+python hulotte.py build \
+    --project-root tests/unit/fixtures/minimal_project \
+    --streampu-root /path/to/streampu
+```
+
+The command generates a minimal CMake project under `generated/build/`. The
+graph workflow supports StreamPU, custom modules, and the initial AFF3CT RS
+catalog entry; Verilator and UART remain part of the legacy workflow for now.
+
+AFF3CT RS support is also available in the graph catalog. It uses the AFF3CT
+embedded StreamPU headers and requires both roots:
+
+```bash
+python hulotte.py build \
+    --project-root /path/to/aff3ct_project \
+    --streampu-root /path/to/streampu \
+    --aff3ct-root /path/to/aff3ct
+```
+
+The initial catalog supports `Encoder_RS<int>` and
+`Decoder_RS_std<int, float>`, sharing one `RS_polynomial_generator`.
+Standalone StreamPU is not linked into an AFF3CT target; it is used only to
+locate the compatible `cpptrace` library.
 
 The script will:
 - Check prerequisites (git, cmake, g++)
@@ -42,8 +81,8 @@ make -j
 ```
 
 Expected files:
-- `libaff3ct-*.a` in `.../aff3ct/build/lib/`
-- `libstreampu.a` in `.../aff3ct/build/lib/streampu/lib/`
+- `libaff3ct-*.a` in `.../vendor/aff3ct/build/lib/`
+- `libstreampu.a` in `.../vendor/aff3ct/build/lib/streampu/lib/`
 
 #### StreamPU standalone
 
@@ -55,13 +94,16 @@ make -j
 ```
 
 Expected file:
-- `libstreampu.a` in `.../streampu/build/lib/`
+- `libstreampu.a` in `.../vendor/streampu/build/lib/`
 
+# Hulotte - Hybrid Unified Libraries for Opensource TesTing of Embedded systems
+
+Modular framework to build processing chains with StreamPU and AFF3CT.
 ## 2) Create and compose a project (recommended workflow)
 
 Recommended flow:
-1. Create a base project with `create_project.py`
-2. Add modules incrementally with `add_*.py`
+1. Create a base project with `framework/create_project.py`
+2. Add modules incrementally with `framework/add_*.py`
 3. Validate `hulotte.project.json`
 4. Build and run
 
@@ -70,10 +112,46 @@ Default behavior note:
     (`--no-aff3ct --no-custom --no-hw --no-uart-io`).
 - Legacy behavior remains available explicitly (for example with `--custom`).
 
+### 2.0.1 External user projects
+
+The graph workflow can create projects outside the Hulotte source tree. Hulotte
+keeps its catalog and Python implementation in its own installation; the user
+project contains only its configuration, pipeline, sources, and generated
+artifacts:
+
+```bash
+python hulotte.py init "$HOME/projects/my_pipeline" \
+    --hulotte-root /path/to/hulotte \
+    --streampu-root /path/to/streampu
+
+cd "$HOME/projects/my_pipeline"
+python /path/to/hulotte/hulotte.py generate
+```
+
+`generate` first accepts a project-local `catalog/modules.yaml` when present,
+then falls back to the catalog under `--hulotte-root`, `HULOTTE_HOME`, or the
+Hulotte source installation. It does not copy `framework/common/` or
+`framework/templates/` into the user project. The legacy `create_project.py`
+workflow remains available for existing projects.
+
+### 2.0 Graph generation preview
+
+The graph-oriented workflow is currently available for StreamPU and custom
+modules. A project contains `pipeline.yaml` and `catalog/modules.yaml`; the
+command validates the graph before creating `generated/main.cpp`:
+
+```bash
+python3 framework/hulotte.py generate --project-root /path/to/project
+```
+
+The generated file is an artifact and should not be edited manually. AFF3CT,
+Verilator, UART, CMake generation, and integration with the legacy project
+generator are introduced in later steps.
+
 ### 2.1 Minimal project
 
 ```bash
-python3 create_project.py --name my_project \
+python3 framework/create_project.py --name my_project \
     --no-aff3ct --no-custom --no-hw --no-uart-io \
     --streampu-root /path/to/streampu
 ```
@@ -81,7 +159,7 @@ python3 create_project.py --name my_project \
 ### 2.2 Project with HW support (required for hardware add scripts)
 
 ```bash
-python3 create_project.py --name my_hw_project \
+python3 framework/create_project.py --name my_hw_project \
     --no-aff3ct --no-custom --hw --no-uart-io \
     --streampu-root /path/to/streampu
 ```
@@ -91,7 +169,7 @@ python3 create_project.py --name my_hw_project \
 Add a custom StreamPU module:
 
 ```bash
-./add_custom_module.py \
+./framework/add_custom_module.py \
     --project-root /path/to/my_project \
     --name DataProcessor \
     --id data_processor_main
@@ -100,7 +178,7 @@ Add a custom StreamPU module:
 Add a Verilator hardware block:
 
 ```bash
-./add_hardware_module.py \
+./framework/add_hardware_module.py \
     --project-root /path/to/my_hw_project \
     --name FilterBlock \
     --id filter_block_main
@@ -109,7 +187,7 @@ Add a Verilator hardware block:
 Add a UART-wrapped hardware block:
 
 ```bash
-./add_uart_hw_module.py \
+./framework/add_uart_hw_module.py \
     --project-root /path/to/my_hw_project \
     --name UartWrappedFilter \
     --id uart_wrapped_filter_main
@@ -120,13 +198,13 @@ Add a UART-wrapped hardware block:
 Each generated project includes `hulotte.project.json`.
 
 ```bash
-./create_project.py --validate-manifest /path/to/my_project/hulotte.project.json
+./framework/create_project.py --validate-manifest /path/to/my_project/hulotte.project.json
 ```
 
 If you are in a project directory:
 
 ```bash
-./create_project.py --validate-manifest
+/path/to/hulotte/framework/create_project.py --validate-manifest
 ```
 
 ### 2.5 Build and run
@@ -159,7 +237,7 @@ All add scripts also support:
 Run the repository test flow:
 
 ```bash
-./test.sh
+./tests/integration/test.sh
 ```
 
 This script checks:
@@ -167,3 +245,7 @@ This script checks:
 - manifest validation per generated project
 - build and run of generated executables
 - add scripts idempotence (`exit 2` expected on second identical run)
+
+Generated projects are created in a temporary directory and removed when the
+script exits. Set `HULOTTE_TEST_OUTPUT_DIR=/path/to/output` to keep them for
+debugging.

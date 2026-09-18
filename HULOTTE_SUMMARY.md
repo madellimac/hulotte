@@ -17,46 +17,49 @@ Le projet s'appuie sur cinq piles technologiques principales :
 
 ```text
 hulotte/
-├── create_project.py          # Générateur interactif et CLI de nouveaux projets Hulotte
-├── add_custom_module.py       # Script d'ajout de modules C++ StreamPU personnalisés
-├── add_hardware_module.py     # Script d'ajout de blocs IP SystemVerilog (Verilator)
-├── add_uart_hw_module.py      # Script d'ajout de blocs IP enveloppés UART (FPGA)
-├── install_dependencies.py    # Script d'installation automatique d'AFF3CT et StreamPU
-├── hulotte_utils.py           # Fonctions utilitaires partagées (ANSI, logs, sons, paths)
-├── test.sh                    # Suite de tests d'intégration et de non-régression
-├── hulotte_gui.sh              # Lancement unifié de la GUI (backend FastAPI + frontend Vite)
-├── README.md                  # Documentation utilisateur
-├── project_config.example.json# Exemple de fichier de configuration de projet
+├── framework/                  # Code du framework (seule source de vérité applicative)
+│   ├── hulotte.py               # CLI graph-oriented (generate/build/init)
+│   ├── create_project.py        # Générateur interactif/CLI historique + manifeste hulotte.project.json
+│   ├── add_custom_module.py     # Ajoute un module C++ StreamPU personnalisé
+│   ├── add_hardware_module.py   # Ajoute un bloc IP SystemVerilog (Verilator)
+│   ├── add_uart_hw_module.py    # Ajoute un bloc IP enveloppé UART (FPGA)
+│   ├── install_dependencies.py  # Installe/compile AFF3CT et StreamPU dans vendor/
+│   ├── hulotte_utils.py         # Fonctions utilitaires partagées (ANSI, logs, sons, chemins)
+│   ├── hulotte_gui.sh           # Lancement unifié de la GUI (backend FastAPI + frontend Vite)
+│   ├── hulotte.txt, hulotte.wav # Assets de l'easter egg (ASCII art + hululement)
+│   ├── pipeline.py, validation.py   # Modèle et validation du graphe de pipeline
+│   ├── catalog.py, generator.py     # Chargement du catalogue et génération du C++
+│   ├── project.py, paths.py         # Orchestration haut niveau et résolution des chemins
+│   │
+│   ├── templates/               # Gabarits Jinja2 (CMakeLists.txt.j2, main.cpp.j2, *.sv.j2, ...)
+│   ├── catalog/modules.yaml      # Catalogue par défaut des modules (StreamPU/AFF3CT)
+│   ├── common/                  # Composants hw/sw partagés copiés dans les projets générés
+│   │   ├── sw/                   # Comparator, SerialPort, UartFrameIO, MySource
+│   │   └── hw/                   # uart_recv, UART_fifoed_send_V1
+│   ├── examples/project_config.example.json
+│   │
+│   └── gui/                     # Interface graphique optionnelle (ne remplace pas le CLI)
+│       ├── backend/              # API FastAPI (main.py, api.py, services.py)
+│       └── frontend/             # Application React + TypeScript + Vite
 │
-├── gui/                        # Interface graphique optionnelle (ne remplace pas le CLI)
-│   ├── backend/                # API FastAPI (Python) : appelle les scripts CLI existants
-│   │   ├── main.py             # Point d'entrée Uvicorn + middleware CORS
-│   │   ├── api.py              # Routes REST (/api/projects, /generate, /build, /run, /stop, ...)
-│   │   └── services.py         # Scan des manifestes, appels subprocess vers create_project.py/build.sh
-│   └── frontend/                # Application React + TypeScript + Vite
-│       └── src/
-│           ├── App.tsx                       # Orchestration générale + polling statut/logs
-│           └── components/                   # ProjectPanel, PipelinePanel, ActionsPanel, ConsolePanel
+├── vendor/                     # Dépendances externes, installées localement (non trackées par git)
+│   ├── streampu/                 # Moteur StreamPU (dataflow)
+│   └── aff3ct/                   # Bibliothèque AFF3CT (avec StreamPU embarqué)
 │
-├── templates/                 # Squelettes Jinja2 utilisés par les scripts de génération
-│   ├── CMakeLists.txt.j2      # Modèle CMake avec détection automatique Verilator & StreamPU
-│   ├── main.cpp.j2            # Squelette C++ d'instanciation et de binding du graphe de tâches
-│   ├── MyModule.hpp.j2 / .cpp.j2 # Modèle de module C++ StreamPU
-│   ├── hw_module.sv.j2        # Modèle de bloc IP SystemVerilog (handshake Ready/Valid)
-│   ├── uart_hw_module.sv.j2   # Modèle de bloc IP encapsulé avec interface UART
-│   ├── Top_Level.sv.j2        # Top-level SystemVerilog pour synthèse/FPGA
-│   ├── VerilatorSimulation.hpp.j2 # Wrapper C++ adaptant un modèle Verilator en tâche StreamPU
-│   ├── view_waves.sh.j2       # Script de visualisation des chronogrammes (.vcd/.fst)
-│   └── README.md.j2           # Documentation générée dans chaque nouveau projet
+├── tests/                      # Non-régression
+│   ├── unit/                     # Suite Python (test_*.py + fixtures/)
+│   ├── integration/test.sh       # Matrice d'intégration (8 projets + idempotence add_*)
+│   └── legacy_artifacts/         # Anciens projets générés committés, conservés pour référence
 │
-├── Common/streampu/           # Composants réutilisables partagés
-│   ├── sw/                    # Composants logiciels C++ (Comparator, SerialPort, UartFrameIO, MySource)
-│   └── hw/                    # Composants matériels SystemVerilog (uart_recv, UART_fifoed_send_V1)
+├── sandbox/                    # Bac à sable pour projets d'essai manuels (non tracké par git)
 │
-├── aff3ct/                    # Sous-module git / dépôt AFF3CT (avec StreamPU embarqué)
-├── streampu/                  # Sous-module git / dépôt StreamPU autonome
-└── test_projects/             # Projets générés automatiquement par test.sh pour validation
+└── README.md, HULOTTE_SUMMARY.md, LICENSE, requirements.txt, .gitignore
 ```
+
+Le framework ne copie ni ne dépend d'aucun fichier situé hors de `framework/` :
+les dépendances externes (`vendor/`) et les projets utilisateurs (`sandbox/`,
+ou tout répertoire externe passé via `--project-root`) restent séparés du code
+applicatif.
 
 ---
 
@@ -98,42 +101,42 @@ Chaque projet généré contient un manifeste `hulotte.project.json` qui central
 
 ## 5. Guide des Scripts CLI
 
-### 5.1 [install_dependencies.py](install_dependencies.py)
+### 5.1 [install_dependencies.py](framework/install_dependencies.py)
 Vérifie les prérequis système (g++, cmake, git), clone et compile les bibliothèques statiques :
-- `libaff3ct*.a` dans `aff3ct/build/lib/`
-- `libstreampu.a` dans `streampu/build/lib/`
+- `libaff3ct*.a` dans `vendor/aff3ct/build/lib/`
+- `libstreampu.a` dans `vendor/streampu/build/lib/`
 
-### 5.2 [create_project.py](create_project.py)
+### 5.2 [create_project.py](framework/create_project.py)
 Crée un nouveau projet Hulotte.
 ```bash
 # Exemple : Création d'un projet avec support matériel
-python3 create_project.py --name mon_projet --no-aff3ct --custom --hw --no-uart-io \
-    --streampu-root /chemin/vers/streampu
+python3 framework/create_project.py --name mon_projet --no-aff3ct --custom --hw --no-uart-io \
+    --streampu-root /chemin/vers/vendor/streampu
 
 # Validation d'un manifeste existant
-python3 create_project.py --validate-manifest /chemin/vers/mon_projet/hulotte.project.json
+python3 framework/create_project.py --validate-manifest /chemin/vers/mon_projet/hulotte.project.json
 ```
 
-### 5.3 [add_custom_module.py](add_custom_module.py)
+### 5.3 [add_custom_module.py](framework/add_custom_module.py)
 Ajoute un module C++ StreamPU personnalisable dans `src/custom/` et met à jour `CMakeLists.txt` et `hulotte.project.json`.
 ```bash
-./add_custom_module.py --project-root /chemin/vers/projet --name FiltreGausien --id filtre_v1
+./framework/add_custom_module.py --project-root /chemin/vers/projet --name FiltreGausien --id filtre_v1
 ```
 
-### 5.4 [add_hardware_module.py](add_hardware_module.py)
+### 5.4 [add_hardware_module.py](framework/add_hardware_module.py)
 Ajoute un bloc SystemVerilog dans `src/hw/`. CMake compile automatiquement ce fichier avec Verilator pour créer une bibliothèque C++ liée au projet.
 ```bash
-./add_hardware_module.py --project-root /chemin/vers/projet --name FilterBlock --id filter_v1
+./framework/add_hardware_module.py --project-root /chemin/vers/projet --name FilterBlock --id filter_v1
 ```
 
-### 5.5 [add_uart_hw_module.py](add_uart_hw_module.py)
+### 5.5 [add_uart_hw_module.py](framework/add_uart_hw_module.py)
 Génère un bloc IP SystemVerilog encapsulé avec la logique UART pour synthèse sur FPGA.
 ```bash
-./add_uart_hw_module.py --project-root /chemin/vers/projet --name UartFilter --id uart_filter_v1
+./framework/add_uart_hw_module.py --project-root /chemin/vers/projet --name UartFilter --id uart_filter_v1
 ```
 
-### 5.6 [test.sh](test.sh)
-Exécute la batterie de tests d'intégration (génération d'une matrice de 8 projets, validation des manifestes, compilation CMake, exécution des exécutables et vérification de l'idempotence).
+### 5.6 [test.sh](tests/integration/test.sh)
+Exécute la batterie de tests d'intégration dans un répertoire temporaire (génération d'une matrice de 8 projets, validation des manifestes, compilation CMake, exécution des exécutables et vérification de l'idempotence). Utiliser `HULOTTE_TEST_OUTPUT_DIR=/chemin` pour conserver les sorties à des fins de diagnostic.
 
 ---
 
@@ -150,13 +153,13 @@ Une interface graphique optionnelle complète le CLI **sans le remplacer** : ell
 
 ### 7.1 Lancement
 ```bash
-./hulotte_gui.sh
+./framework/hulotte_gui.sh
 ```
 Démarre en une seule commande le backend FastAPI (`http://localhost:8000`, `--reload`) et le frontend Vite (`http://localhost:5173`, hot-reload). Chaque processus est lancé dans son propre groupe de processus (`setsid`) afin qu'un `Ctrl+C` arrête proprement uniquement les processus lancés par ce script, sans affecter d'autres instances Uvicorn/Vite indépendantes.
 
 ### 7.2 Architecture
-- **Backend** ([gui/backend/](gui/backend/)) : FastAPI + Uvicorn. `services.py` scanne les répertoires de projets (`projects/`, `test_projects/`) à la recherche de `hulotte.project.json`, et invoque `create_project.py` / `build.sh` / le binaire compilé via `subprocess`. Les logs et le statut (`idle`/`building`/`running`/`error`) sont conservés en mémoire par projet.
-- **Frontend** ([gui/frontend/](gui/frontend/)) : React + TypeScript + Vite, avec quatre panneaux principaux :
+- **Backend** ([gui/backend/](framework/gui/backend/)) : FastAPI + Uvicorn. `services.py` scanne le répertoire `sandbox/` à la racine du dépôt et, pour compatibilité legacy, `tests/legacy_artifacts/test_projects/`. La matrice `test.sh`, elle, utilise désormais un répertoire temporaire. Les logs et le statut (`idle`/`building`/`running`/`error`) sont conservés en mémoire par projet.
+- **Frontend** ([gui/frontend/](framework/gui/frontend/)) : React + TypeScript + Vite, avec quatre panneaux principaux :
   - **ProjectPanel** : création de projet (formulaire) et sélection d'un projet existant.
   - **PipelinePanel** : affichage du pipeline sous forme de blocs cliquables ; un clic affiche les détails du module (id, type, `enabled`, fichiers source/wrapper/core) directement issus du manifeste.
   - **ActionsPanel** : boutons `Generate` / `Build` / `Run` / `Stop`.

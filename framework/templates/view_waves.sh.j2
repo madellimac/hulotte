@@ -1,0 +1,73 @@
+#!/bin/bash
+# Script to visualize waveforms using Surfer or GTKWave
+
+# Check for waveform file in common locations
+if [ -f "waveform.vcd" ]; then
+    WAVE_FILE="waveform.vcd"
+elif [ -f "build/waveform.vcd" ]; then
+    WAVE_FILE="build/waveform.vcd"
+else
+    echo "Error: Waveform file 'waveform.vcd' not found in . or build/"
+    echo "Please run the simulation first: ./build/{{ project_name }}"
+    exit 1
+fi
+
+echo "Found waveform: $WAVE_FILE"
+
+# Determine Surfer Executable
+SURFER_BIN=""
+if command -v surfer &> /dev/null; then
+    SURFER_BIN="surfer"
+elif [ -f "./surfer" ]; then
+    SURFER_BIN="./surfer"
+elif [ -f "{{ hulotte_root }}/tools/surfer" ]; then
+    SURFER_BIN="{{ hulotte_root }}/tools/surfer"
+fi
+
+# Try running Surfer if found
+if [ -n "$SURFER_BIN" ]; then
+    echo "Starting Surfer ($SURFER_BIN)..."
+    "$SURFER_BIN" "$WAVE_FILE"
+    
+    # Check if Surfer exited successfully (0). If not, it probably crashed.
+    if [ $? -eq 0 ]; then
+        exit 0
+    else
+        echo "--------------------------------------------------------"
+        echo "Surfer exited with error (see above)."
+        echo "Troubleshooting: try running 'LIBGL_ALWAYS_SOFTWARE=1 ./view_waves.sh'"
+        echo "Falling back to GTKWave..."
+        echo "--------------------------------------------------------"
+    fi
+fi
+
+# Fallback to GTKWave
+if command -v gtkwave &> /dev/null; then
+    echo "Starting GTKWave..."
+    gtkwave "$WAVE_FILE" &
+    exit 0
+else
+    echo "Error: GTKWave not found in path. Please install it (e.g., sudo apt install gtkwave)."
+    exit 1
+fi
+
+# If neither found, ask to download surfer
+echo "Error: Neither 'surfer' nor 'gtkwave' found."
+read -p "Do you want to download the latest Surfer binary (Linux x86_64)? [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+    echo "Downloading Surfer..."
+    # Attempt to fetch latest release logic or fixed URL
+    # Using a known recent version for stability if dynamic fetch fails
+    wget -O surfer https://gitlab.com/surfer-project/surfer/-/jobs/artifacts/main/raw/surfer?job=compile-linux -q --show-progress
+    if [ -f "surfer" ]; then
+        chmod +x surfer
+        echo "Surfer downloaded successfully."
+        ./surfer "$WAVE_FILE"
+        exit 0
+    else
+        echo "Download failed."
+    fi
+else 
+    echo "Please install surfer or gtkwave manually."
+fi
+exit 1

@@ -1,0 +1,45 @@
+resources:
+  polynomial:
+    type: rs_polynomial_generator
+    parameters:
+      N_rs: 7
+      t: 1
+modules:
+  source:
+    type: streampu
+    catalog: source_random_int
+    parameters:
+      frame_size: 15
+    sockets:
+      generate:
+        outputs:
+          out_data: {type: int32, frame_size: 15}
+  encoder:
+    type: aff3ct
+    catalog: aff3ct_encoder_rs_int
+    parameters:
+      K_rs: 5
+      N_rs: 7
+    sockets:
+      encode:
+        inputs:
+          U_K: {type: int32, frame_size: 15}
+        outputs:
+          X_N: {type: int32, frame_size: 21}
+  decoder:
+    type: aff3ct
+    catalog: aff3ct_decoder_rs_std_int
+    parameters:
+      K_rs: 5
+      N_rs: 7
+    sockets:
+      decode_hiho:
+        inputs:
+          Y_N: {type: int32, frame_size: 21}
+        outputs:
+          V_K: {type: int32, frame_size: 15}
+connections:
+  - from: source.generate.out_data
+    to: encoder.encode.U_K
+  - from: encoder.encode.X_N
+    to: decoder.decode_hiho.Y_N

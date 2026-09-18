@@ -1,0 +1,47 @@
+version: 1
+resources:
+  rs_polynomial_generator:
+    class: aff3ct::tools::RS_polynomial_generator
+    include: aff3ct.hpp
+    constructor:
+      - parameter: N_rs
+      - parameter: t
+modules:
+  source_random_int:
+    type: streampu
+    class: spu::module::Source_random<int>
+    include: streampu.hpp
+    constructor:
+      - parameter: frame_size
+    sockets:
+      generate:
+        outputs:
+          out_data: {type: int32}
+  aff3ct_encoder_rs_int:
+    type: aff3ct
+    class: aff3ct::module::Encoder_RS<int>
+    include: aff3ct.hpp
+    constructor:
+      - parameter: K_rs
+      - parameter: N_rs
+      - resource: polynomial
+    sockets:
+      encode:
+        inputs:
+          U_K: {type: int32}
+        outputs:
+          X_N: {type: int32, cpp_task: enc::tsk::encode, cpp_socket: (int)enc::sck::encode::X_N}
+  aff3ct_decoder_rs_std_int:
+    type: aff3ct
+    class: aff3ct::module::Decoder_RS_std<int, float>
+    include: aff3ct.hpp
+    constructor:
+      - parameter: K_rs
+      - parameter: N_rs
+      - resource: polynomial
+    sockets:
+      decode_hiho:
+        inputs:
+          Y_N: {type: int32, cpp_task: dec::tsk::decode_hiho, cpp_socket: (int)dec::sck::decode_hiho::Y_N}
+        outputs:
+          V_K: {type: int32, cpp_task: dec::tsk::decode_hiho, cpp_socket: (int)dec::sck::decode_hiho::V_K}

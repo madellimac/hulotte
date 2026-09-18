@@ -1,0 +1,24 @@
+version: 1
+modules:
+  source_random_int:
+    type: streampu
+    class: spu::module::Source_random<int>
+    include: streampu.hpp
+    constructor:
+      - parameter: frame_size
+    sockets:
+      generate:
+        outputs:
+          out_data: {type: int32}
+  custom_passthrough:
+    type: custom
+    class: CustomModule
+    include: custom/CustomModule.hpp
+    constructor:
+      - parameter: frame_size
+    sockets:
+      process:
+        inputs:
+          in: {type: int32}
+        outputs:
+          out: {type: int32}

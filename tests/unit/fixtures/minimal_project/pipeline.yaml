@@ -1,0 +1,24 @@
+modules:
+  source:
+    type: streampu
+    catalog: source_random_int
+    parameters:
+      frame_size: 16
+    sockets:
+      generate:
+        outputs:
+          out_data: {type: int32, frame_size: 16}
+  filter:
+    type: custom
+    catalog: custom_passthrough
+    parameters:
+      frame_size: 16
+    sockets:
+      process:
+        inputs:
+          in: {type: int32, frame_size: 16}
+        outputs:
+          out: {type: int32, frame_size: 16}
+connections:
+  - from: source.generate.out_data
+    to: filter.process.in

@@ -5,9 +5,11 @@ build/
 # Installation info
 INSTALL_INFO.txt
 
-# Dependencies
-/aff3ct/
-/streampu/
+# Dependencies (fetched/built locally by install_dependencies.py)
+/vendor/
+
+# Python virtual environment
+/.venv/
 
 # Python
 __pycache__/
@@ -32,6 +34,14 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+
+# Generated test and graph artifacts
+graph.dot
+*.log
+generated/
+tests/legacy_artifacts/
+sandbox/*
+!sandbox/README.md
 
 # Compiled binaries
 *.o
