@@ -5,6 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from framework.config import ConfigurationError, configuration_status, set_user_value, unset_user_value
 from framework.project import ProjectGenerationError, build_project, generate_project, init_project
 from framework.validation import PipelineValidationError
 
@@ -12,6 +13,15 @@ from framework.validation import PipelineValidationError
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate Hulotte StreamPU pipeline artifacts")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    config = subparsers.add_parser("config", help="manage user configuration")
+    config_subparsers = config.add_subparsers(dest="config_command", required=True)
+    config_subparsers.add_parser("show", help="show configuration and StreamPU status")
+    config_set = config_subparsers.add_parser("set", help="set a configuration value")
+    config_set.add_argument("key", choices=["streampu-root"])
+    config_set.add_argument("value")
+    config_unset = config_subparsers.add_parser("unset", help="remove a configuration value")
+    config_unset.add_argument("key", choices=["streampu-root"])
 
     generate = subparsers.add_parser("generate", help="validate and generate a pipeline")
     generate.add_argument(
@@ -42,6 +52,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "config":
+        try:
+            if args.config_command == "show":
+                import json
+
+                print(json.dumps(configuration_status(), indent=2))
+            elif args.config_command == "set":
+                print(f"Configured: {set_user_value(args.key, args.value)}")
+            else:
+                print(f"Updated: {unset_user_value(args.key)}")
+        except (ConfigurationError, OSError, ValueError) as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+        return 0
     if args.command == "generate":
         try:
             output = generate_project(

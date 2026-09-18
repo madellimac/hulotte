@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +14,23 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "minimal_project"
 
 
 class CliTests(unittest.TestCase):
+    def test_help_command_succeeds(self):
+        with self.assertRaises(SystemExit) as error:
+            main(["--help"])
+        self.assertEqual(error.exception.code, 0)
+
+    def test_config_set_show_and_unset(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "streampu"
+            (root / "include").mkdir(parents=True)
+            (root / "build" / "lib").mkdir(parents=True)
+            (root / "include" / "streampu.hpp").write_text("// fixture\n", encoding="utf-8")
+            (root / "build" / "lib" / "libstreampu.a").write_bytes(b"fixture")
+            with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(Path(temp_dir) / "config")}, clear=False):
+                self.assertEqual(main(["config", "set", "streampu-root", str(root)]), 0)
+                self.assertEqual(main(["config", "show"]), 0)
+                self.assertEqual(main(["config", "unset", "streampu-root"]), 0)
+
     def test_generate_command_succeeds(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             code = main([

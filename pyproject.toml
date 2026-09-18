@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hulotte"
+version = "0.1.0"
+description = "Framework for StreamPU pipeline prototyping and co-simulation"
+requires-python = ">=3.9"
+dependencies = [
+    "Jinja2>=3.1",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+hulotte = "framework.hulotte:main"
+
+[tool.setuptools.packages.find]
+include = ["framework*"]
+
+[tool.setuptools.package-data]
+framework = [
+    "catalog/*.yaml",
+    "templates/*",
+    "common/**/*",
+]

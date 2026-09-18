@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: hulotte
+Version: 0.1.0
+Summary: Framework for StreamPU pipeline prototyping and co-simulation
+Requires-Python: >=3.9
+License-File: LICENSE
+Requires-Dist: Jinja2>=3.1
+Requires-Dist: PyYAML>=6.0
+Dynamic: license-file

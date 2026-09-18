@@ -5,6 +5,7 @@ import subprocess
 
 import yaml
 from .catalog import load_catalog
+from .config import ConfigurationError, resolve_streampu_root
 from .generator import write_cpp
 from .paths import PathResolutionError, resolve_catalog
 from .pipeline import load_pipeline
@@ -63,22 +64,22 @@ def build_project(
     """Generate, configure, and build a software-only graph project."""
     root = Path(project_root).resolve()
     project_config = _load_project_config(root)
-    streampu_root = streampu_root or project_config.get("dependencies", {}).get("streampu_root")
+    configured_streampu = resolve_streampu_root(
+        explicit=streampu_root,
+        project_config=project_config,
+        project_root=root,
+    )
     aff3ct_root = aff3ct_root or project_config.get("dependencies", {}).get("aff3ct_root")
     hulotte_root = hulotte_root or project_config.get("hulotte", {}).get("root")
-    if hulotte_root is not None:
-        hulotte_root = Path(hulotte_root).expanduser().resolve()
-    if hulotte_root is not None:
-        hulotte_root = Path(hulotte_root).expanduser().resolve()
     generated_main = generate_project(root, hulotte_root=hulotte_root)
     pipeline = load_pipeline(_resolve_path(root, None, "pipeline.yaml"))
     uses_aff3ct = any(module.kind == "aff3ct" for module in pipeline.modules.values())
     if uses_aff3ct:
         aff_root = _resolve_aff3ct_root(root, aff3ct_root)
-        stream_root = _resolve_streampu_root(root, streampu_root)
+        stream_root = configured_streampu
     else:
         aff_root = None
-        stream_root = _resolve_streampu_root(root, streampu_root)
+        stream_root = configured_streampu
     generated_root = generated_main.parent
     cmake_file = generated_root / "CMakeLists.txt"
     cmake_file.write_text(
@@ -111,34 +112,18 @@ def _resolve_path(root: Path, path: str | Path | None, default: str) -> Path:
 
 
 def _resolve_streampu_root(root: Path, configured: str | Path | None) -> Path:
-    if configured is not None:
-        stream_root = Path(configured)
-        if not stream_root.is_absolute():
-            stream_root = root / stream_root
-    else:
-        config_file = root / "project.yaml"
-        external_config_file = root / "hulotte.project.yaml"
-        config_file = config_file if config_file.is_file() else external_config_file
-        if not config_file.is_file():
-            raise ProjectGenerationError(
-                "StreamPU root is required; pass streampu_root or provide project.yaml"
-            )
-        with config_file.open("r", encoding="utf-8") as file_desc:
-            config = yaml.safe_load(file_desc) or {}
-        configured_root = config.get("streampu_root")
-        configured_root = configured_root or config.get("dependencies", {}).get("streampu_root")
-        stream_root = Path(configured_root or "")
-        if not stream_root.is_absolute():
-            stream_root = root / stream_root
-
-    stream_root = stream_root.resolve()
-    library = stream_root / "build" / "lib" / "libstreampu.a"
-    headers = stream_root / "include" / "streampu.hpp"
-    if not library.is_file() or not headers.is_file():
-        raise ProjectGenerationError(
-            f"invalid StreamPU root '{stream_root}'; expected {headers} and {library}"
+    project_config = _load_project_config(root)
+    try:
+        resolved = resolve_streampu_root(
+            explicit=configured,
+            project_config=project_config,
+            project_root=root,
         )
-    return stream_root
+    except ConfigurationError as error:
+        raise ProjectGenerationError(str(error)) from error
+    if resolved is None:
+        raise ProjectGenerationError("StreamPU root is required")
+    return resolved
 
 
 def _resolve_aff3ct_root(root: Path, configured: str | Path | None) -> Path:
@@ -287,6 +272,11 @@ def init_project(
     (root / "hardware" / "sv").mkdir(parents=True, exist_ok=True)
     (root / "generated").mkdir(exist_ok=True)
 
+    try:
+        resolved_streampu = resolve_streampu_root(explicit=streampu_root, required=False)
+    except ConfigurationError as error:
+        raise ProjectGenerationError(str(error)) from error
+
     config = [
         "schema_version: 1",
         "project:",
@@ -294,8 +284,6 @@ def init_project(
         "hulotte:",
         f"  root: {Path(hulotte_root).expanduser().resolve() if hulotte_root else ''}",
         "dependencies:",
-        f"  streampu_root: {Path(streampu_root).expanduser().resolve() if streampu_root else ''}",
-        f"  aff3ct_root: {Path(aff3ct_root).expanduser().resolve() if aff3ct_root else ''}",
         "capabilities:",
         "  streampu: true",
         "  custom: true",
@@ -304,6 +292,12 @@ def init_project(
         "  uart: false",
         "",
     ]
+    dependency_lines = []
+    if resolved_streampu is not None:
+        dependency_lines.append(f"  streampu_root: {resolved_streampu}")
+    if aff3ct_root:
+        dependency_lines.append(f"  aff3ct_root: {Path(aff3ct_root).expanduser().resolve()}")
+    config[config.index("capabilities:") : config.index("capabilities:")] = dependency_lines
     (root / "hulotte.project.yaml").write_text("\n".join(config), encoding="utf-8")
     (root / "pipeline.yaml").write_text(
         """modules:\n  source:\n    type: streampu\n    catalog: source_random_int\n    parameters:\n      frame_size: 16\n    sockets:\n      generate:\n        outputs:\n          out_data: {type: int32, frame_size: 16}\nconnections: []\n""",
