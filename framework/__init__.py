@@ -1,6 +1,18 @@
 """Core domain model for Hulotte pipeline projects."""
 
-from .pipeline import Connection, ModuleSpec, Pipeline, PipelineCycleError, ResourceSpec, load_pipeline
+from .pipeline import (
+    BlockCanvas,
+    BlockCanvasValidationError,
+    CanvasBlock,
+    CanvasConnection,
+    CanvasPort,
+    Connection,
+    ModuleSpec,
+    Pipeline,
+    PipelineCycleError,
+    ResourceSpec,
+    load_pipeline,
+)
 from .validation import PipelineValidationError, validate_pipeline
 from .catalog import CatalogError, CatalogModule, CatalogResource, ModuleCatalog, load_catalog
 from .generator import GenerationError, generate_cpp, write_cpp
@@ -8,6 +20,11 @@ from .project import ProjectGenerationError, build_project, generate_project, in
 from .paths import PathResolutionError, resolve_catalog, resolve_hulotte_root
 
 __all__ = [
+    "BlockCanvas",
+    "BlockCanvasValidationError",
+    "CanvasBlock",
+    "CanvasConnection",
+    "CanvasPort",
     "Connection",
     "CatalogError",
     "CatalogModule",

@@ -2,6 +2,12 @@
 
 Hulotte propose un workflow graph déclaratif qui permet de décrire un pipeline dans des fichiers YAML, puis de générer automatiquement le code C++ et les fichiers CMake nécessaires à sa compilation.
 
+L'installation native suit un modèle par profils :
+
+- le profil recommandé pour la majorité des utilisateurs est `streampu-only` ;
+- les profils avancés (`aff3ct-only`, `streampu-aff3ct`, `all-dependencies`) restent disponibles pour des cas spécialisés ;
+- l'installation complète est une option de dev / CI, pas le mode par défaut.
+
 Le pipeline est défini dans `pipeline.yaml`. Il décrit les modules, leurs paramètres, leurs sockets, leurs connexions et éventuellement les ressources partagées.
 
 Le fichier `catalog/modules.yaml` associe chaque identifiant de module à une classe C++, ses headers, son constructeur et ses sockets. Il permet aussi de définir les syntaxes spécifiques nécessaires aux modules AFF3CT.

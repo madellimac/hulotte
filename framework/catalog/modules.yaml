@@ -11,8 +11,21 @@ modules:
     type: streampu
     class: spu::module::Source_random<int>
     include: streampu.hpp
+    label: Random int source
+    family: source
+    description: Generates signed integer samples for a StreamPU pipeline.
     constructor:
       - parameter: frame_size
+    parameters:
+      - name: frame_size
+        type: int
+        default: 16
+    ports:
+      outputs:
+        - name: out_data
+          type: int32
+          task: generate
+          socket: out_data
     sockets:
       generate:
         outputs:
@@ -23,6 +36,10 @@ modules:
     include: custom/CustomModule.hpp
     constructor:
       - parameter: frame_size
+    parameters:
+      - name: frame_size
+        type: int
+        default: 16
     sockets:
       process:
         inputs:
@@ -37,6 +54,13 @@ modules:
       - parameter: K_rs
       - parameter: N_rs
       - resource: rs_polynomial_generator
+    parameters:
+      - name: K_rs
+        type: int
+        default: 239
+      - name: N_rs
+        type: int
+        default: 255
     sockets:
       encode:
         inputs:
@@ -52,6 +76,13 @@ modules:
       - parameter: K_rs
       - parameter: N_rs
       - resource: rs_polynomial_generator
+    parameters:
+      - name: K_rs
+        type: int
+        default: 239
+      - name: N_rs
+        type: int
+        default: 255
     sockets:
       decode_hiho:
         inputs:

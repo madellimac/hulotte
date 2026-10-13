@@ -11,22 +11,21 @@ Modular framework to build processing chains with StreamPU and AFF3CT.
 
 ## 1) Installation
 
-From the Hulotte repository root, install the native dependencies with the
-CMake preset that matches your needs:
+Hulotte uses a simple default profile for most users, with explicit advanced
+profiles for expert setups. In practice, we do not install every optional
+native dependency by default: the default is a targeted install that matches the
+common graph workflow.
+
+### Recommended default install
+
+For the majority of users, install the standalone StreamPU profile:
 
 ```bash
 cmake --preset streampu-only
 cmake --build --preset streampu-only
 ```
 
-The available presets are:
-
-- `streampu-only`: standalone StreamPU, recommended for graph projects;
-- `aff3ct-only`: AFF3CT and its bundled StreamPU;
-- `streampu-aff3ct`: standalone StreamPU and AFF3CT;
-- `all-dependencies`: standalone StreamPU, AFF3CT and optional Surfer support.
-
-Install Hulotte and its Python dependencies in a virtual environment:
+Then install Hulotte itself in a virtual environment:
 
 ```bash
 python3 -m venv .venv
@@ -40,17 +39,32 @@ Verify the installation:
 hulotte --help
 ```
 
-For the `streampu-only` preset, configure StreamPU with the source path used
-by the preset:
+For the `streampu-only` preset, configure the corresponding StreamPU source
+path so the CLI can resolve the library at runtime:
 
 ```bash
 hulotte config set streampu-root build/dependencies/streampu-only/dependencies/src/streampu
 hulotte config show
 ```
 
-The CMake build currently generates the dependency manifest in the selected
-build directory. Automatic import of that manifest into Hulotte configuration
-will be added in a later step.
+The CMake build generates a dependency manifest in the selected build
+configuration directory. That manifest is the source of truth for the installed
+native dependency layout; explicit user configuration remains the override point
+when needed.
+
+### Expert / selective installs
+
+The available presets are:
+
+- `streampu-only`: standalone StreamPU, recommended for the default graph workflow;
+- `aff3ct-only`: AFF3CT with its bundled StreamPU;
+- `streampu-aff3ct`: standalone StreamPU and AFF3CT;
+- `all-dependencies`: standalone StreamPU, AFF3CT and optional Surfer support.
+
+Use the preset matching your use case instead of forcing a full install by
+default.
+
+### Typical project flow
 
 You can now create and build a graph project:
 
@@ -61,7 +75,19 @@ hulotte generate
 hulotte build
 ```
 
-The legacy `framework/install_dependencies.py` script is still available for
+For advanced or reproducible builds, explicit roots remain available:
+
+```bash
+hulotte init "$HOME/projects/my_pipeline" \
+    --hulotte-root /path/to/hulotte \
+    --streampu-root /path/to/streampu
+
+hulotte build \
+    --streampu-root /path/to/streampu \
+    --aff3ct-root /path/to/aff3ct
+```
+
+The legacy `framework/install_dependencies.py` script remains available for
 compatibility, but CMake presets are the recommended installation method.
 
 ## 2) CLI graph workflow

@@ -2,6 +2,16 @@
 
 Le workflow graph moderne est la nouvelle chaîne de génération déclarative de Hulotte. Au lieu d’écrire directement tout le `main.cpp`, on décrit un graphe de modules dans des fichiers YAML, puis Hulotte génère le code C++ correspondant.
 
+## Installation par profils
+
+L'installation native de Hulotte suit un principe simple :
+
+- **profil par défaut recommandé** : `streampu-only` ;
+- **profil expert** : `aff3ct-only`, `streampu-aff3ct`, ou `all-dependencies` selon le besoin ;
+- **installation complète** : utile pour le développement complet, la CI et les environnements de validation, mais pas comme default pour un usage standard.
+
+En pratique, le but est d'éviter d'installer des dépendances non nécessaires à un projet donné, tout en gardant une installation explicite et reproductible pour les cas avancés.
+
 **Vue d’ensemble**
 
 ```text

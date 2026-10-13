@@ -11,6 +11,16 @@ Le projet s'appuie sur cinq piles technologiques principales :
 4. **Boost ASIO / UART** : Pilotes de communication série pour échanger des trames de données avec des FPGA ou du matériel réel (*Hardware-in-the-Loop*).
 5. **GUI Hulotte** (React/TypeScript/Vite + FastAPI) : Interface graphique optionnelle de supervision qui pilote le CLI existant sans le remplacer (création de projet, build, run, inspection du pipeline).
 
+### Politique d'installation
+
+Hulotte adopte une installation par profils : le profil recommandé pour la plupart des utilisateurs est un setup minimal et ciblé, tandis que les profils avancés permettent de choisir explicitement les dépendances à compiler.
+
+- **Profil recommandé par défaut** : `streampu-only`.
+- **Profil expert** : `aff3ct-only`, `streampu-aff3ct` ou `all-dependencies` selon le besoin.
+- **Installation complète** : réservée aux environnements de dev, CI ou aux usages avancés où toutes les dépendances sont utiles.
+
+L'objectif est d'éviter un build inutilement lourd tout en gardant une grande flexibilité pour les utilisateurs et les intégrateurs avancés.
+
 ---
 
 ## 2. Structure de l'Arborescence

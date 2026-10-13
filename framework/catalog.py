@@ -1,6 +1,6 @@
 """Versioned module catalog used by the pipeline generator."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,23 @@ class CatalogModule:
     include: str
     constructor: tuple[dict[str, Any], ...]
     sockets: dict[str, Any]
+    label: str | None = None
+    family: str | None = None
+    description: str | None = None
+    parameters: tuple[dict[str, Any], ...] = ()
+    ports: dict[str, Any] = field(default_factory=dict)
+
+    def ui_block(self) -> dict[str, Any]:
+        """Return metadata suitable for a GUI block palette."""
+        return {
+            "catalog_id": self.catalog_id,
+            "kind": self.kind,
+            "label": self.label or self.catalog_id,
+            "family": self.family or "generic",
+            "description": self.description or "",
+            "parameters": list(self.parameters),
+            "ports": self.ports,
+        }
 
 
 @dataclass(frozen=True)
@@ -105,6 +122,19 @@ def load_catalog(path: str | Path) -> ModuleCatalog:
         sockets = raw_module["sockets"]
         if not isinstance(sockets, dict):
             raise CatalogError(f"catalog module '{catalog_id}' sockets must be a mapping")
+
+        parameters = raw_module.get("parameters", [])
+        if isinstance(parameters, dict):
+            parameters = [{"name": name, **value} if isinstance(value, dict) else {"name": name, "value": value} for name, value in parameters.items()]
+        elif not isinstance(parameters, list):
+            raise CatalogError(f"catalog module '{catalog_id}' parameters must be a list or dict")
+        if not all(isinstance(argument, dict) for argument in parameters):
+            raise CatalogError(f"catalog module '{catalog_id}' parameters must be a list of mappings")
+
+        ports = raw_module.get("ports", {})
+        if not isinstance(ports, dict):
+            raise CatalogError(f"catalog module '{catalog_id}' ports must be a mapping")
+
         modules[catalog_id] = CatalogModule(
             catalog_id=catalog_id,
             kind=raw_module["type"],
@@ -112,6 +142,11 @@ def load_catalog(path: str | Path) -> ModuleCatalog:
             include=raw_module["include"],
             constructor=tuple(constructor),
             sockets=sockets,
+            label=raw_module.get("label"),
+            family=raw_module.get("family"),
+            description=raw_module.get("description"),
+            parameters=tuple(parameters),
+            ports=ports,
         )
 
     return ModuleCatalog(version=version, modules=modules, resources=resources)

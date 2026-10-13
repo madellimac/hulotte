@@ -2,19 +2,15 @@ import React, { useState } from 'react';
 import { ProjectData, CreateProjectPayload } from '../services/api';
 
 interface ProjectPanelProps {
-  projects: ProjectData[];
   selectedProject: ProjectData | null;
-  onSelectProject: (project: ProjectData) => void;
   onCreateProject: (payload: CreateProjectPayload) => Promise<void>;
 }
 
 export const ProjectPanel: React.FC<ProjectPanelProps> = ({
-  projects,
   selectedProject,
-  onSelectProject,
   onCreateProject,
 }) => {
-  const [isCreating, setIsCreating] = useState(false);
+  const [isCreating, setIsCreating] = useState(!selectedProject);
   const [formData, setFormData] = useState<CreateProjectPayload>({
     name: '',
     use_streampu: true,
@@ -26,6 +22,7 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({
     uart_baud: 115200,
     uart_frame_size: 16,
   });
+  const validProjectName = /^[A-Za-z_][A-Za-z0-9_-]*$/.test(formData.name);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +48,7 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({
         </button>
       </div>
 
-      {isCreating ? (
+      {!selectedProject || isCreating ? (
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.field}>
             <label style={styles.label}>Nom du Projet :</label>
@@ -108,45 +105,17 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({
             </label>
           </div>
 
-          <button type="submit" style={styles.submitBtn}>
+          <button type="submit" style={styles.submitBtn} disabled={!validProjectName}>
             Créer le Projet
           </button>
         </form>
       ) : (
         <div>
-          <div style={styles.field}>
-            <label style={styles.label}>Sélectionner un projet :</label>
-            <select
-              style={styles.select}
-              value={selectedProject?.name || ''}
-              onChange={(e) => {
-                const proj = projects.find((p) => p.name === e.target.value);
-                if (proj) onSelectProject(proj);
-              }}
-            >
-              <option value="" disabled>-- Choisir un projet --</option>
-              {projects.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name} ({p.manifest.pipeline?.mode || 'minimal'})
-                </option>
-              ))}
-            </select>
+          <div style={styles.infoBox}>
+            <p><strong>Nom :</strong> {selectedProject.name}</p>
+            <p><strong>Mode :</strong> <span style={styles.badge}>{selectedProject.manifest.pipeline?.mode || 'minimal'}</span></p>
+            <p style={styles.empty}>Projet vide prêt pour l'édition du graphe.</p>
           </div>
-
-          {selectedProject && (
-            <div style={styles.infoBox}>
-              <p><strong>Nom :</strong> {selectedProject.name}</p>
-              <p><strong>Mode :</strong> <span style={styles.badge}>{selectedProject.manifest.pipeline?.mode || 'minimal'}</span></p>
-              <p><strong>Fonctionnalités :</strong></p>
-              <ul style={styles.featureList}>
-                <li>StreamPU: {selectedProject.manifest.features.streampu ? '✅' : '❌'}</li>
-                <li>AFF3CT: {selectedProject.manifest.features.aff3ct ? '✅' : '❌'}</li>
-                <li>Custom C++: {selectedProject.manifest.features.custom ? '✅' : '❌'}</li>
-                <li>Hardware (Verilator): {selectedProject.manifest.features.hardware ? '✅' : '❌'}</li>
-                <li>UART I/O: {selectedProject.manifest.features.uart_io ? '✅' : '❌'}</li>
-              </ul>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -197,14 +166,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: '#0f172a',
     color: '#f8fafc',
     boxSizing: 'border-box',
-  },
-  select: {
-    width: '100%',
-    padding: '8px',
-    borderRadius: '4px',
-    border: '1px solid #475569',
-    backgroundColor: '#0f172a',
-    color: '#f8fafc',
   },
   checkboxGroup: {
     display: 'flex',

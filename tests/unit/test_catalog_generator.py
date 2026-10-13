@@ -47,6 +47,15 @@ class CatalogGeneratorTests(unittest.TestCase):
         with self.assertRaises(CatalogError):
             catalog.resolve("missing")
 
+    def test_catalog_exposes_ui_metadata(self):
+        catalog = load_catalog(CATALOG_PATH)
+        module = catalog.resolve("source_random_int")
+        self.assertEqual(module.label, "Random int source")
+        self.assertEqual(module.family, "source")
+        self.assertEqual(module.ports["outputs"][0]["type"], "int32")
+        self.assertEqual(module.ui_block()["label"], "Random int source")
+        self.assertEqual(module.ui_block()["family"], "source")
+
     def test_generates_deterministic_cpp(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "pipeline.yaml"

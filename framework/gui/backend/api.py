@@ -22,6 +22,82 @@ class CreateProjectRequest(BaseModel):
 class OpenProjectFileRequest(BaseModel):
     path: str = Field(..., min_length=1)
 
+
+class GraphBlockRequest(BaseModel):
+    catalog_id: str = Field(..., min_length=1)
+    block_id: Optional[str] = None
+    x: int = 0
+    y: int = 0
+    task: Optional[str] = None
+    canvas: Optional[Dict[str, Any]] = None
+
+
+class GraphConnectRequest(BaseModel):
+    source_block: str = Field(..., min_length=1)
+    source_task: str = Field(..., min_length=1)
+    source_port: str = Field(..., min_length=1)
+    target_block: str = Field(..., min_length=1)
+    target_task: str = Field(..., min_length=1)
+    target_port: str = Field(..., min_length=1)
+    canvas: Optional[Dict[str, Any]] = None
+
+
+@router.get("/graph/palette")
+def get_graph_palette():
+    """Return all GUI-compatible catalog blocks for the canvas palette."""
+    return services.GraphEditorService().palette()
+
+
+@router.post("/graph/new")
+def create_graph_canvas():
+    """Create a blank BlockCanvas for the editor."""
+    return {"canvas": services.GraphEditorService().new_canvas().serialize()}
+
+
+@router.post("/graph/blocks")
+def add_graph_block(req: GraphBlockRequest):
+    """Add a catalog-backed block to the current canvas."""
+    editor = services.GraphEditorService()
+    canvas = editor.new_canvas() if req.canvas is None else services.BlockCanvas.from_pipeline(req.canvas)
+    block = editor.add_block(canvas, req.catalog_id, block_id=req.block_id, x=req.x, y=req.y, task=req.task)
+    return {"block": block.__dict__, "canvas": editor.serialize(canvas)}
+
+
+@router.post("/graph/connect")
+def connect_graph_blocks(req: GraphConnectRequest):
+    """Connect two existing blocks using typed ports on the canvas."""
+    editor = services.GraphEditorService()
+    canvas = editor.new_canvas() if req.canvas is None else services.BlockCanvas.from_pipeline(req.canvas)
+    connection = editor.connect(
+        canvas,
+        req.source_block,
+        req.source_task,
+        req.source_port,
+        req.target_block,
+        req.target_task,
+        req.target_port,
+    )
+    return {"connection": connection.__dict__, "canvas": editor.serialize(canvas)}
+
+
+@router.post("/graph/validate")
+def validate_graph_canvas(payload: Dict[str, Any]):
+    """Validate a canvas payload serialized from the frontend."""
+    editor = services.GraphEditorService()
+    result = editor.validate(payload)
+    return result
+
+
+@router.post("/projects/{name}/graph")
+def save_project_graph(name: str, payload: Dict[str, Any]):
+    """Persist a validated graph and regenerate the project's C++ source."""
+    try:
+        result = services.GraphEditorService().save_project_graph(name, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    return {"status": "saved", **result}
+
+
 @router.get("/projects", response_model=List[Dict[str, Any]])
 def get_projects():
     """List all available Hulotte projects."""
