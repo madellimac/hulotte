@@ -1,0 +1,44 @@
+#include "Comparator.hpp"
+
+namespace spu::module {
+
+Comparator::Comparator(int frame_size)
+: Stateful(), frame_size(frame_size), n_errors_total(0), n_frames(0)
+{
+    this->set_name("Comparator");
+    this->set_short_name("Comparator");
+
+    auto& task = this->create_task("check");
+    auto reference_socket = this->create_socket_in<int>(task, "in_ref", frame_size);
+    auto output_socket = this->create_socket_in<int>(task, "in_got", frame_size);
+    this->create_codelet(task, [reference_socket, output_socket](Module& module, runtime::Task& task, const size_t)
+    {
+        auto& comparator = static_cast<Comparator&>(module);
+        const auto* reference = static_cast<const int*>(task[reference_socket].get_dataptr());
+        const auto* output = static_cast<const int*>(task[output_socket].get_dataptr());
+
+        for (int index = 0; index < comparator.frame_size; ++index)
+            if (reference[index] != output[index])
+                ++comparator.n_errors_total;
+
+        ++comparator.n_frames;
+        return runtime::status_t::SUCCESS;
+    });
+}
+
+int Comparator::get_n_errors() const
+{
+    return n_errors_total;
+}
+
+int Comparator::get_frame_count() const
+{
+    return n_frames;
+}
+
+bool Comparator::has_errors() const
+{
+    return n_errors_total > 0;
+}
+
+}

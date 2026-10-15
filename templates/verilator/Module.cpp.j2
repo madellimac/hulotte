@@ -1,0 +1,176 @@
+#include "{{ class_name }}.hpp"
+
+#include <VModel_{{ class_name }}.h>
+#include <verilated.h>
+#include <verilated_vcd_c.h>
+
+#include <cstdint>
+#include <filesystem>
+#include <mutex>
+#include <set>
+#include <stdexcept>
+
+namespace hulotte::detail {
+
+inline std::shared_ptr<const std::string> reserve_vcd_path(const std::string& trace_path)
+{
+    static std::mutex trace_mutex;
+    static std::set<std::string> active_paths;
+    const auto path = std::filesystem::weakly_canonical(trace_path).string();
+    std::lock_guard<std::mutex> lock(trace_mutex);
+    if (!active_paths.insert(path).second)
+        throw std::runtime_error("VCD trace path already in use: " + path);
+    return std::shared_ptr<const std::string>(new std::string(path), [](const std::string* reserved_path)
+    {
+        std::lock_guard<std::mutex> release_lock(trace_mutex);
+        active_paths.erase(*reserved_path);
+        delete reserved_path;
+    });
+}
+
+}
+
+namespace {
+
+std::mutex& verilator_initialization_mutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+}
+
+namespace hulotte::module {
+
+{{ class_name }}::{{ class_name }}(int frame_size, const std::string& trace_path)
+: {{ class_name }}(frame_size, true, trace_path)
+{
+}
+
+{{ class_name }}::{{ class_name }}(int frame_size, bool create_task, const std::string& trace_path)
+: spu::module::Stateful(), frame_size(frame_size)
+{
+    if (frame_size <= 0)
+        throw std::invalid_argument("Frame size must be positive in {{ class_name }}");
+    {
+        std::lock_guard<std::mutex> lock(verilator_initialization_mutex());
+        context = std::make_unique<VerilatedContext>();
+        context->timeunit(-9);
+        context->timeprecision(-9);
+        context->traceEverOn(!trace_path.empty());
+        model = std::make_unique<VModel_{{ class_name }}>(context.get());
+    }
+
+    if (!trace_path.empty())
+    {
+        trace_reservation = hulotte::detail::reserve_vcd_path(trace_path);
+        const std::filesystem::path path(trace_path);
+        if (path.has_parent_path())
+            std::filesystem::create_directories(path.parent_path());
+        trace = std::make_unique<VerilatedVcdC>();
+        model->trace(trace.get(), 99);
+        trace->open(trace_path.c_str());
+        if (!trace->isOpen())
+            throw std::runtime_error("Cannot open VCD trace: " + trace_path);
+    }
+
+    this->set_name("{{ class_name }}");
+    this->set_short_name("{{ class_name }}");
+
+    model->clk = 0;
+    model->reset = 1;
+    model->in_valid = 0;
+    model->in_data = 0;
+    model->out_ready = 0;
+    evaluate();
+    model->clk = 1;
+    evaluate();
+    model->clk = 0;
+    model->reset = 0;
+    evaluate();
+
+    if (create_task)
+    {
+        auto& task = this->create_task("simulate");
+        auto input_socket = this->create_socket_in<int>(task, "input", frame_size);
+        auto output_socket = this->create_socket_out<int>(task, "output", frame_size);
+        this->create_codelet(task, [input_socket, output_socket](spu::module::Module& module, spu::runtime::Task& task, const size_t)
+        {
+            auto& adapter = static_cast<{{ class_name }}&>(module);
+            auto* input = static_cast<int*>(task[input_socket].get_dataptr());
+            auto* output = static_cast<int*>(task[output_socket].get_dataptr());
+            adapter.process_frame(input, output);
+            return spu::runtime::status_t::SUCCESS;
+        });
+    }
+}
+
+{{ class_name }}::~{{ class_name }}()
+{
+    if (model)
+        model->final();
+    if (trace)
+        trace->close();
+}
+
+{{ class_name }}* {{ class_name }}::clone() const
+{
+    std::unique_ptr<{{ class_name }}> copy(new {{ class_name }}(frame_size, false, ""));
+    copy->deep_copy(*this);
+    return copy.release();
+}
+
+void {{ class_name }}::evaluate()
+{
+    model->eval();
+    if (trace)
+        trace->dump(context->time());
+    context->timeInc(5);
+}
+
+void {{ class_name }}::process_frame(const int* input, int* output)
+{
+    int input_count = 0;
+    int output_count = 0;
+    std::uint64_t cycles = 0;
+    const auto cycle_limit = static_cast<std::uint64_t>(frame_size) * 16 + 64;
+
+    while (output_count < frame_size && cycles < cycle_limit)
+    {
+        model->clk = 0;
+        model->in_valid = input_count < frame_size;
+        model->in_data = input_count < frame_size ? input[input_count] : 0;
+        model->out_ready = 1;
+        evaluate();
+
+        const bool input_accepted = model->in_valid && model->in_ready;
+        const bool output_available = model->out_valid && model->out_ready;
+        const int output_value = model->out_data;
+
+        model->clk = 1;
+        evaluate();
+
+        if (input_accepted)
+            ++input_count;
+        if (output_available)
+            output[output_count++] = output_value;
+        ++cycles;
+    }
+
+    model->clk = 0;
+    model->in_valid = 0;
+    model->out_ready = 0;
+    evaluate();
+    if (trace)
+        trace->flush();
+
+    if (output_count != frame_size)
+    {
+        throw std::runtime_error("Verilator frame timeout in {{ class_name }} after "
+                                 + std::to_string(cycles) + " cycles (received "
+                                 + std::to_string(output_count) + "/"
+                                 + std::to_string(frame_size) + " elements)");
+    }
+}
+
+}

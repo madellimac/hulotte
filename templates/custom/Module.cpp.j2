@@ -1,0 +1,37 @@
+#include "{{ class_name }}.hpp"
+
+#include <algorithm>
+
+namespace hulotte::module {
+
+{{ class_name }}::{{ class_name }}(int frame_size)
+: spu::module::Stateful(), frame_size(frame_size)
+{
+    this->set_name("{{ class_name }}");
+    this->set_short_name("{{ class_name }}");
+
+    auto& task = this->create_task("process");
+    auto input_socket = this->create_socket_in<int>(task, "in", frame_size);
+    auto output_socket = this->create_socket_out<int>(task, "out", frame_size);
+    this->create_codelet(task, [input_socket, output_socket](spu::module::Module& module, spu::runtime::Task& task, const size_t)
+    {
+        auto& custom_module = static_cast<{{ class_name }}&>(module);
+        custom_module.process(static_cast<int*>(task[input_socket].get_dataptr()),
+                              static_cast<int*>(task[output_socket].get_dataptr()));
+        return spu::runtime::status_t::SUCCESS;
+    });
+}
+
+{{ class_name }}* {{ class_name }}::clone() const
+{
+    auto* copy = new {{ class_name }}(*this);
+    copy->deep_copy(*this);
+    return copy;
+}
+
+void {{ class_name }}::process(const int* input, int* output) const
+{
+    std::copy(input, input + frame_size, output);
+}
+
+}

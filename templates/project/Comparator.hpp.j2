@@ -1,0 +1,22 @@
+#pragma once
+
+#include <streampu.hpp>
+
+namespace spu::module {
+
+class Comparator : public Stateful
+{
+public:
+    explicit Comparator(int frame_size);
+
+    int get_n_errors() const;
+    int get_frame_count() const;
+    bool has_errors() const;
+
+private:
+    int frame_size;
+    int n_errors_total;
+    int n_frames;
+};
+
+}

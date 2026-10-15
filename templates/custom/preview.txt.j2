@@ -1,0 +1,14 @@
+Files to create in {{ project_dir }}:
+  src/custom/{{ class_name }}.hpp
+  src/custom/{{ class_name }}.cpp
+
+Add this include to src/main.cpp:
+  #include "custom/{{ class_name }}.hpp"
+
+Create the module in main():
+    hulotte::module::{{ class_name }} {{ instance_name }}(frame_size);
+
+Example socket bindings for source -> {{ class_name }} -> PassThrough:
+Replace the existing source -> PassThrough binding; do not keep both connections.
+  source["generate::out_data"] = {{ instance_name }}["process::in"];
+  {{ instance_name }}["process::out"] = pass_through["process::in"];

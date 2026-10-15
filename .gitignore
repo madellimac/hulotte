@@ -1,0 +1,53 @@
+# Build directories
+build/
+*/build/
+
+# Frontend dependencies
+node_modules/
+
+# Generated outputs in archived projects
+/legacy/**/graph.dot
+/legacy/**/*.vcd
+/legacy/**/*.fst
+
+# Installation info
+INSTALL_INFO.txt
+
+# Dependencies
+/dependencies/
+/aff3ct/
+/streampu/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Compiled binaries
+*.o
+*.a
+*.so
+*.exe
+
+# Local waveform outputs
+traces/

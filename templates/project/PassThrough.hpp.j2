@@ -1,0 +1,18 @@
+#pragma once
+
+#include <streampu.hpp>
+
+namespace spu::module {
+
+class PassThrough : public Stateful
+{
+public:
+    explicit PassThrough(int frame_size);
+    PassThrough* clone() const override;
+
+private:
+    int frame_size;
+    void process(const int* input, int* output) const;
+};
+
+}

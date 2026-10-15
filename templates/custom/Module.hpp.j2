@@ -1,0 +1,18 @@
+#pragma once
+
+#include <streampu.hpp>
+
+namespace hulotte::module {
+
+class {{ class_name }} : public spu::module::Stateful
+{
+public:
+    explicit {{ class_name }}(int frame_size);
+    {{ class_name }}* clone() const override;
+
+private:
+    int frame_size;
+    void process(const int* input, int* output) const;
+};
+
+}

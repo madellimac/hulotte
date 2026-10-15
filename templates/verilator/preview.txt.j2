@@ -1,0 +1,25 @@
+Files to create in {{ project_dir }}:
+    src/hw/{{ class_name }}.sv
+    src/custom/{{ class_name }}.hpp
+    src/custom/{{ class_name }}.cpp
+
+Add this include to src/main.cpp:
+    #include "custom/{{ class_name }}.hpp"
+
+Create the StreamPU adapter in main():
+    hulotte::module::{{ class_name }} {{ instance_name }}(frame_size);
+
+Or enable an optional VCD trace (use a distinct path per instance):
+    hulotte::module::{{ class_name }} {{ instance_name }}(frame_size, "traces/{{ instance_name }}.vcd");
+
+Open the trace after running the simulation:
+    surfer traces/{{ instance_name }}.vcd
+    gtkwave traces/{{ instance_name }}.vcd
+
+Example socket bindings for source -> Verilator -> comparator:
+Replace the default processing-path bindings with these lines; keep only one reference binding.
+    source["generate::out_data"] = comparator["check::in_ref"];
+    source["generate::out_data"] = {{ instance_name }}["simulate::input"];
+    {{ instance_name }}["simulate::output"] = comparator["check::in_got"];
+
+    The generated SystemVerilog is a Ready/Valid passthrough example; edit it to implement your hardware behavior.

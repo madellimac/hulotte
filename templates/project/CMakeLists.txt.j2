@@ -1,0 +1,88 @@
+cmake_minimum_required(VERSION 3.20)
+project({{ project_name }} LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(STREAMPU_ROOT "$ENV{STREAMPU_ROOT}" CACHE PATH "Path to the StreamPU source and build directories")
+if(NOT STREAMPU_ROOT)
+    message(FATAL_ERROR "Set STREAMPU_ROOT to a StreamPU installation")
+endif()
+
+find_path(STREAMPU_INCLUDE_DIR streampu.hpp
+    PATHS "${STREAMPU_ROOT}/include"
+    NO_DEFAULT_PATH
+)
+find_library(STREAMPU_LIBRARY NAMES streampu
+    PATHS "${STREAMPU_ROOT}/build/lib"
+    NO_DEFAULT_PATH
+)
+if(NOT STREAMPU_INCLUDE_DIR OR NOT STREAMPU_LIBRARY)
+    message(FATAL_ERROR "StreamPU headers or libstreampu.a were not found under ${STREAMPU_ROOT}")
+endif()
+
+find_package(Threads REQUIRED)
+
+add_executable({{ executable_name }}
+    src/main.cpp
+    src/PassThrough.cpp
+    src/Comparator.cpp
+)
+target_include_directories({{ executable_name }} PRIVATE
+    "${STREAMPU_INCLUDE_DIR}"
+    "${STREAMPU_ROOT}/src"
+    "${STREAMPU_ROOT}/lib/rang/include"
+    "${STREAMPU_ROOT}/lib/json/include"
+    "${STREAMPU_ROOT}/lib/cpptrace/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+target_link_libraries({{ executable_name }} PRIVATE "${STREAMPU_LIBRARY}" Threads::Threads)
+
+find_library(CPPTRACE_LIBRARY NAMES cpptrace
+    PATHS "${STREAMPU_ROOT}/build/lib/cpptrace/lib"
+    NO_DEFAULT_PATH
+)
+if(CPPTRACE_LIBRARY)
+    target_link_libraries({{ executable_name }} PRIVATE "${CPPTRACE_LIBRARY}")
+    target_compile_definitions({{ executable_name }} PRIVATE SPU_STACKTRACE)
+endif()
+
+file(GLOB HULOTTE_CUSTOM_MODULE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/custom/*.cpp"
+)
+if(HULOTTE_CUSTOM_MODULE_SOURCES)
+    target_sources({{ executable_name }} PRIVATE ${HULOTTE_CUSTOM_MODULE_SOURCES})
+endif()
+
+file(GLOB HULOTTE_VERILOG_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/hw/*.sv"
+)
+if(HULOTTE_VERILOG_SOURCES)
+    if(DEFINED ENV{VERILATOR_ROOT})
+        find_package(verilator REQUIRED HINTS "$ENV{VERILATOR_ROOT}")
+    else()
+        find_package(verilator REQUIRED)
+    endif()
+
+    foreach(HULOTTE_VERILOG_SOURCE IN LISTS HULOTTE_VERILOG_SOURCES)
+        get_filename_component(HULOTTE_BLOCK_NAME "${HULOTTE_VERILOG_SOURCE}" NAME_WE)
+        set(HULOTTE_VERILATOR_TARGET "VerilatorModel_${HULOTTE_BLOCK_NAME}")
+        add_library(${HULOTTE_VERILATOR_TARGET} STATIC "${HULOTTE_VERILOG_SOURCE}")
+        verilate(${HULOTTE_VERILATOR_TARGET}
+            SOURCES "${HULOTTE_VERILOG_SOURCE}"
+            TOP_MODULE "${HULOTTE_BLOCK_NAME}"
+            PREFIX "VModel_${HULOTTE_BLOCK_NAME}"
+            TRACE
+            VERILATOR_ARGS -Wno-fatal
+        )
+        target_include_directories(${HULOTTE_VERILATOR_TARGET} PUBLIC
+            "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${HULOTTE_VERILATOR_TARGET}.dir"
+        )
+        target_link_libraries(${HULOTTE_VERILATOR_TARGET} PUBLIC Threads::Threads)
+        target_link_libraries({{ executable_name }} PRIVATE ${HULOTTE_VERILATOR_TARGET})
+    endforeach()
+endif()
+
+enable_testing()
+add_test(NAME pipeline_smoke COMMAND {{ executable_name }})

@@ -1,0 +1,32 @@
+#pragma once
+
+#include <streampu.hpp>
+#include <memory>
+#include <string>
+
+class VerilatedContext;
+class VModel_{{ class_name }};
+class VerilatedVcdC;
+
+namespace hulotte::module {
+
+class {{ class_name }} : public spu::module::Stateful
+{
+public:
+    explicit {{ class_name }}(int frame_size, const std::string& trace_path = "");
+    ~{{ class_name }}() override;
+    {{ class_name }}* clone() const override;
+
+private:
+    {{ class_name }}(int frame_size, bool create_task, const std::string& trace_path);
+    void process_frame(const int* input, int* output);
+    void evaluate();
+
+    int frame_size;
+    std::shared_ptr<const std::string> trace_reservation;
+    std::unique_ptr<VerilatedContext> context;
+    std::unique_ptr<VModel_{{ class_name }}> model;
+    std::unique_ptr<VerilatedVcdC> trace;
+};
+
+}
