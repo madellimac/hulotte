@@ -2,13 +2,21 @@
 """Create readable C++ StreamPU projects and guide module creation."""
 
 import argparse
+import os
 import re
+import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateError
 
 __version__ = "0.1.0"
+STREAMPU_URL = "https://github.com/aff3ct/streampu.git"
+STREAMPU_REVISION = "b036089b872a950ae5fe6eae31e7963a4e043670"
 
 
 RESERVED_CMAKE_TARGETS = {
@@ -244,6 +252,161 @@ def create_project(project_dir: Path) -> Path:
     return project_dir
 
 
+def stream_pu_path(repository_root: Optional[Path] = None) -> Path:
+    repository_root = repository_root or Path(__file__).resolve().parent
+    return repository_root / "dependencies" / "streampu"
+
+
+def stream_pu_is_built(stream_pu_root: Path) -> bool:
+    return (
+        (stream_pu_root / "include/streampu.hpp").is_file()
+        and (stream_pu_root / "build/lib/libstreampu.a").is_file()
+    )
+
+
+def available_compiler() -> Optional[str]:
+    configured_compiler = shlex.split(os.environ.get("CXX", ""))
+    candidates = configured_compiler[:1] + ["c++", "g++", "clang++"]
+    return next((compiler for compiler in candidates if shutil.which(compiler)), None)
+
+
+def cmake_version() -> Optional[tuple[int, int, int]]:
+    if shutil.which("cmake") is None:
+        return None
+    try:
+        result = subprocess.run(["cmake", "--version"], check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    match = re.search(r"cmake version (\d+)\.(\d+)(?:\.(\d+))?", result.stdout, re.IGNORECASE)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
+
+
+def missing_install_tools() -> list[str]:
+    missing = ["git"] if shutil.which("git") is None else []
+    if cmake_version() is None or cmake_version() < (3, 20, 0):
+        missing.append("CMake >= 3.20")
+    if available_compiler() is None:
+        missing.append("C++ compiler (set CXX or install c++, g++, or clang++)")
+    return missing
+
+
+def run_command(command: list[str], cwd: Optional[Path] = None) -> None:
+    try:
+        subprocess.run(command, cwd=cwd, check=True)
+    except FileNotFoundError as error:
+        raise RuntimeError(f"Required command not found: {command[0]}") from error
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f"Command failed with exit code {error.returncode}: {shlex.join(command)}") from error
+
+
+def checkout_revision(stream_pu_root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(stream_pu_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(f"Could not read the StreamPU Git revision at {stream_pu_root}") from error
+    return result.stdout.strip()
+
+
+def install_stream_pu(repository_root: Path, dry_run: bool = False) -> Path:
+    stream_pu_root = stream_pu_path(repository_root)
+    existing_checkout = stream_pu_root.exists() or stream_pu_root.is_symlink()
+    if existing_checkout:
+        if stream_pu_root.is_symlink() or not (stream_pu_root / ".git").exists():
+            raise ValueError(f"Refusing to modify existing non-Git StreamPU path: {stream_pu_root}")
+        revision = checkout_revision(stream_pu_root)
+        if revision != STREAMPU_REVISION:
+            raise ValueError(
+                f"StreamPU already exists at {stream_pu_root} but is at {revision}; "
+                f"expected {STREAMPU_REVISION}. Move it manually before installing."
+            )
+        if stream_pu_is_built(stream_pu_root):
+            print(f"StreamPU is already installed at {stream_pu_root}")
+            return stream_pu_root
+    missing_tools = missing_install_tools()
+    if missing_tools:
+        raise ValueError("Missing required tools: " + ", ".join(missing_tools))
+    if dry_run:
+        if existing_checkout:
+            print(f"Would initialize StreamPU Git submodules at {stream_pu_root}")
+        else:
+            print(f"Would clone StreamPU {STREAMPU_REVISION} into {stream_pu_root}")
+            print("Would initialize its Git submodules, configure CMake, and build libstreampu.a")
+        if existing_checkout:
+            print("Would configure and build StreamPU")
+        return stream_pu_root
+
+    if not existing_checkout:
+        dependencies_dir = stream_pu_root.parent
+        dependencies_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".hulotte-streampu-", dir=dependencies_dir) as temporary_dir:
+            staged_stream_pu = Path(temporary_dir) / "streampu"
+            run_command(["git", "clone", "--no-checkout", STREAMPU_URL, str(staged_stream_pu)])
+            run_command(["git", "-C", str(staged_stream_pu), "checkout", "--detach", STREAMPU_REVISION])
+            run_command(["git", "-C", str(staged_stream_pu), "submodule", "update", "--init", "--recursive"])
+            staged_stream_pu.rename(stream_pu_root)
+    else:
+        run_command(["git", "-C", str(stream_pu_root), "submodule", "update", "--init", "--recursive"])
+
+    run_command([
+        "cmake", "-S", str(stream_pu_root), "-B", str(stream_pu_root / "build"),
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DSPU_COMPILE_STATIC_LIB=ON",
+        "-DSPU_COMPILE_SHARED_LIB=OFF",
+        "-DSPU_TESTS=OFF",
+    ])
+    run_command(["cmake", "--build", str(stream_pu_root / "build"), "--parallel"])
+    if not stream_pu_is_built(stream_pu_root):
+        raise RuntimeError(f"StreamPU build completed but the expected library is missing under {stream_pu_root}")
+    print(f"StreamPU installed at {stream_pu_root}")
+    print(f"Configure generated projects with -DSTREAMPU_ROOT={stream_pu_root}")
+    return stream_pu_root
+
+
+def print_dependency_status(repository_root: Path) -> bool:
+    stream_pu_root = stream_pu_path(repository_root)
+    if stream_pu_is_built(stream_pu_root):
+        try:
+            revision = checkout_revision(stream_pu_root)
+        except RuntimeError:
+            revision = "unknown revision"
+        expected = revision == STREAMPU_REVISION
+        state = "built" if expected else f"built, but expected revision {STREAMPU_REVISION}"
+        print(f"StreamPU: {state} ({revision})")
+        print(f"Path: {stream_pu_root}")
+        return expected
+    print(f"StreamPU: not installed at {stream_pu_root}")
+    return False
+
+
+def run_doctor(repository_root: Path) -> int:
+    missing_tools = missing_install_tools()
+    git_path = shutil.which("git")
+    print(f"git: {'available (' + git_path + ')' if git_path else 'missing'}")
+    cmake_path = shutil.which("cmake")
+    version = cmake_version()
+    if cmake_path and version:
+        print(f"cmake: available ({cmake_path}, version {'.'.join(map(str, version))})")
+    elif cmake_path:
+        print(f"cmake: available ({cmake_path}), version could not be determined")
+    else:
+        print("cmake: missing")
+    compiler = available_compiler()
+    print(f"C++ compiler: {compiler or 'missing'}")
+    stream_pu_ready = print_dependency_status(repository_root)
+    if missing_tools:
+        print("Install the missing build tools, then rerun hulotte doctor.")
+    elif not stream_pu_ready:
+        print("Run hulotte deps install to install StreamPU.")
+    return 1 if missing_tools or not stream_pu_ready else 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Create and build readable Hulotte C++ projects")
     parser.add_argument("--version", action="version", version=f"Hulotte {__version__}")
@@ -257,7 +420,30 @@ def main(argv=None) -> int:
     add_parser.add_argument("--type", dest="module_type", choices=["custom", "verilator"], help="module type; prompt when omitted")
     add_parser.add_argument("--name", help="C++ module class name; prompt when omitted")
     add_parser.add_argument("--yes", action="store_true", help="create files without a confirmation prompt")
+    deps_parser = subparsers.add_parser("deps", help="install or inspect native dependencies")
+    deps_subparsers = deps_parser.add_subparsers(dest="deps_command", required=True)
+    install_parser = deps_subparsers.add_parser("install", help="install the pinned StreamPU dependency")
+    install_parser.add_argument("--dry-run", action="store_true", help="show the planned installation without changing files")
+    deps_subparsers.add_parser("status", help="show the local StreamPU installation status")
+    subparsers.add_parser("doctor", help="check build tools and installed dependencies")
     args = parser.parse_args(argv)
+
+    repository_root = Path(__file__).resolve().parent
+    if args.command == "deps":
+        try:
+            if args.deps_command == "install":
+                install_stream_pu(repository_root, args.dry_run)
+                return 0
+            return 0 if print_dependency_status(repository_root) else 1
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            print("\nCancelled; the dependency checkout was not modified further.", file=sys.stderr)
+            return 130
+
+    if args.command == "doctor":
+        return run_doctor(repository_root)
 
     if args.command == "module":
         try:
@@ -299,7 +485,8 @@ def main(argv=None) -> int:
         return 1
 
     print(f"Created project: {project_dir}")
-    print("Set STREAMPU_ROOT, then run cmake -S . -B build && cmake --build build")
+    print("Build with: cmake -S . -B build -DSTREAMPU_ROOT=" + str(stream_pu_path()))
+    print("Then run: cmake --build build")
     return 0
 
 

@@ -14,8 +14,8 @@ The active workflow requires StreamPU. Verilator is optional and only needed whe
 - Jinja2 3.1 or later, as specified in `requirements.txt`.
 - CMake 3.20 or later.
 - A C++17 compiler, such as GCC or Clang.
-- Git, if you need to clone StreamPU.
-- A built StreamPU source tree containing `include/streampu.hpp` and `build/lib/libstreampu.a`.
+- Git, required by `hulotte deps install` to retrieve StreamPU.
+- StreamPU, installed by the following steps or supplied as another built source tree.
 - Verilator 5 or later, only if you want to generate and build a Verilator-backed module.
 
 On Ubuntu, the compiler and Git can be installed with:
@@ -51,11 +51,26 @@ Activate this environment in each shell where you run Hulotte. If `venv` or pip 
 
 Jinja2 is required only by the generator. Generated C++ projects build and run without Python or Jinja2.
 
-## Prepare StreamPU
+## Install StreamPU
 
-If StreamPU is already built, skip this section and set `STREAMPU_ROOT` to its root directory.
+From the Hulotte repository root, preview and install the pinned StreamPU revision:
 
-To build a local StreamPU checkout:
+```sh
+# Preview the clone and build steps without changing files.
+python3 hulotte.py deps install --dry-run
+# Clone and build StreamPU under dependencies/streampu.
+python3 hulotte.py deps install
+# Check the managed dependency revision and build status.
+python3 hulotte.py deps status
+# Check build tools and dependency readiness.
+python3 hulotte.py doctor
+```
+
+The installer requires Git, CMake 3.20 or later, and a C++ compiler. It clones StreamPU at revision `b036089b872a950ae5fe6eae31e7963a4e043670`, initializes its submodules, and builds a Release static library. It does not install system packages or require `sudo`. A failed source download is cleaned up; if compilation fails, the checkout is kept so the build can be resumed.
+
+The installer refuses to overwrite a non-Git path or a checkout at a different revision. Move that checkout manually before installing if you want Hulotte to create its managed copy. If the pinned checkout already has the expected library, installation is a no-op.
+
+To build a separate StreamPU checkout manually instead:
 
 ```sh
 # Clone StreamPU and its submodules into your home directory.
@@ -75,19 +90,19 @@ cmake --build "$HOME/streampu/build" --parallel
 Check that the expected header and static library exist:
 
 ```sh
-# Point to the StreamPU source and build tree.
-export STREAMPU_ROOT="$HOME/streampu"
+# Point to the StreamPU source and build tree managed by Hulotte.
+export STREAMPU_ROOT="$PWD/dependencies/streampu"
 # Confirm the header required by Hulotte is present.
 test -f "$STREAMPU_ROOT/include/streampu.hpp"
 # Confirm the static library required by Hulotte is present.
 test -f "$STREAMPU_ROOT/build/lib/libstreampu.a"
 ```
 
-If you already have a local development checkout under `dependencies/streampu`, use:
+If you maintain another built StreamPU checkout, use its root instead:
 
 ```sh
-# Point to the local StreamPU checkout.
-export STREAMPU_ROOT="$PWD/dependencies/streampu"
+# Point to the external StreamPU checkout.
+export STREAMPU_ROOT="/path/to/streampu"
 ```
 
 Run that command from the Hulotte repository root. You can use another path if StreamPU is installed elsewhere.

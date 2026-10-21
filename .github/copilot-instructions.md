@@ -4,7 +4,7 @@
 
 The active Hulotte workflow is a Python project generator for standalone C++17/CMake projects using StreamPU. The generated processing graph is explicit in `src/main.cpp` and can be edited directly.
 
-The current generator creates a `Source_random<int>` source, a custom `PassThrough` module, and a `Comparator` that checks the output against the source. `hulotte.py module add <project>` creates custom C++ modules or StreamPU adapters for Verilator and prints snippets for manual integration. CMake discovers sources under `src/custom/` and enables Verilator when `src/hw/*.sv` files are present. Native/AFF3CT catalogs, UART, Ethernet, and dependency installation are not yet implemented in the active workflow.
+The current generator creates a `Source_random<int>` source, a custom `PassThrough` module, and a `Comparator` that checks the output against the source. `hulotte.py module add <project>` creates custom C++ modules or StreamPU adapters for Verilator and prints snippets for manual integration. `hulotte.py deps install/status` manages the pinned StreamPU checkout and build under `dependencies/`; `hulotte.py doctor` checks build tools and dependency status. CMake discovers sources under `src/custom/` and enables Verilator when `src/hw/*.sv` files are present. Native/AFF3CT catalogs, AFF3CT installation, UART, and Ethernet are not yet implemented in the active workflow.
 
 ## Repository layout
 

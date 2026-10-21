@@ -11,6 +11,7 @@ Version **0.1.0** is an initial experimental source release. See [CHANGELOG.md](
 - The comparator checks the custom module output against the original source and returns a failure exit code if any elements differ.
 - The executable processes three frames and includes a CTest smoke test.
 - The generated CMake project locates StreamPU through the `STREAMPU_ROOT` environment variable.
+- `hulotte deps install` installs the pinned StreamPU revision under `dependencies/`; `hulotte doctor` checks build tools and dependency status.
 - `hulotte.py module add <project>` guides you through creating a custom C++ StreamPU module and prints the code to integrate manually.
 - The same assistant can generate a StreamPU adapter and Ready/Valid SystemVerilog starter block for Verilator.
 - CMake automatically discovers added module sources under `src/custom/` on the next build.
@@ -24,10 +25,10 @@ See [INSTALLATION.md](INSTALLATION.md) for setup and installation instructions.
 
 - Python 3.9 or later and Jinja2 (listed in `requirements.txt`).
 - CMake 3.20 or later and a C++17 compiler.
-- A built StreamPU tree containing `include/streampu.hpp` and `build/lib/libstreampu.a`.
+- StreamPU, installed with `python3 hulotte.py deps install`.
 - Verilator 5 or later is only required when generating a Verilator-backed module.
 
-The local StreamPU checkout is under `dependencies/streampu`. For another installation, set `STREAMPU_ROOT` to its root directory.
+StreamPU is installed under `dependencies/streampu` by `hulotte deps install`. For another installation, set `STREAMPU_ROOT` to its root directory.
 
 Install the Python requirements in a virtual environment as described in [INSTALLATION.md](INSTALLATION.md#install-the-python-requirements).
 
@@ -36,7 +37,9 @@ Install the Python requirements in a virtual environment as described in [INSTAL
 Run these commands from the repository root:
 
 ```sh
-# Point CMake to the local StreamPU sources and library.
+# Install the pinned StreamPU checkout and static library if needed.
+python3 hulotte.py deps install
+# Point generated projects to the managed StreamPU tree.
 export STREAMPU_ROOT="$PWD/dependencies/streampu"
 # Generate the project skeleton in your home directory.
 python3 hulotte.py init "$HOME/projects/my_pipeline"
@@ -133,7 +136,7 @@ Templates use explicit rendering contexts and `StrictUndefined`: a missing varia
 
 ## Not yet available
 
-The new workflow does not yet provide a catalog of built-in StreamPU/AFF3CT modules, AFF3CT module instantiation, UART/Ethernet transports, or dependency installation. Verilator-backed modules are available when Verilator 5 or later is installed. `dependencies/aff3ct` is present locally but is not used by this generator.
+The new workflow does not yet provide a catalog of built-in StreamPU/AFF3CT modules, AFF3CT module instantiation or installation, or UART/Ethernet transports. StreamPU installation is available through `hulotte deps install`. Verilator-backed modules are available when Verilator 5 or later is installed. `dependencies/aff3ct` is present locally but is not used by this generator.
 
 The previous generator, its templates and shared components, example projects, and prototypes are archived under `legacy/` for reference. They are not part of the new workflow.
 

@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -69,6 +71,85 @@ class NewProjectCliTests(unittest.TestCase):
         namespace = runpy.run_path(str(CLI_PATH))
         with self.assertRaisesRegex(ValueError, "SystemVerilog keyword"):
             namespace["validate_module_name"]("logic", "verilator")
+
+    def test_stream_pu_install_dry_run_does_not_create_dependency_files(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            install = namespace["install_stream_pu"]
+            output = StringIO()
+            with patch.dict(install.__globals__, missing_install_tools=lambda: []):
+                with redirect_stdout(output):
+                    result = install(repository_root, dry_run=True)
+            self.assertEqual(result, repository_root / "dependencies/streampu")
+            self.assertIn("Would clone StreamPU", output.getvalue())
+            self.assertFalse((repository_root / "dependencies").exists())
+
+    def test_stream_pu_install_refuses_a_different_existing_revision(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            stream_pu_root = repository_root / "dependencies/streampu"
+            (stream_pu_root / ".git").mkdir(parents=True)
+            marker = stream_pu_root / "keep.txt"
+            marker.write_text("preserve", encoding="utf-8")
+            install = namespace["install_stream_pu"]
+            with patch.dict(install.__globals__, checkout_revision=lambda _path: "different-revision"):
+                with self.assertRaisesRegex(ValueError, "Move it manually"):
+                    install(repository_root)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "preserve")
+
+    def test_stream_pu_install_clones_pinned_revision_and_builds_static_library(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            commands = []
+
+            def run_command(command, cwd=None):
+                commands.append(command)
+                if command[:3] == ["git", "clone", "--no-checkout"]:
+                    staged_root = Path(command[-1])
+                    (staged_root / ".git").mkdir(parents=True)
+                elif command[:2] == ["cmake", "--build"]:
+                    stream_pu_root = repository_root / "dependencies/streampu"
+                    (stream_pu_root / "include").mkdir()
+                    (stream_pu_root / "include/streampu.hpp").touch()
+                    (stream_pu_root / "build/lib").mkdir(parents=True)
+                    (stream_pu_root / "build/lib/libstreampu.a").touch()
+
+            install = namespace["install_stream_pu"]
+            with patch.dict(
+                install.__globals__,
+                {"missing_install_tools": lambda: [], "run_command": run_command},
+            ):
+                result = install(repository_root)
+
+            self.assertEqual(result, repository_root / "dependencies/streampu")
+            self.assertTrue((result / "build/lib/libstreampu.a").is_file())
+            self.assertIn(namespace["STREAMPU_REVISION"], commands[1])
+            self.assertEqual(commands[2][3:], ["submodule", "update", "--init", "--recursive"])
+            self.assertIn("-DSPU_TESTS=OFF", commands[-2])
+
+    def test_stream_pu_status_requires_header_and_static_library(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            stream_pu_root = repository_root / "dependencies/streampu"
+            self.assertFalse(namespace["stream_pu_is_built"](stream_pu_root))
+            (stream_pu_root / "include").mkdir(parents=True)
+            (stream_pu_root / "include/streampu.hpp").touch()
+            (stream_pu_root / "build/lib").mkdir(parents=True)
+            (stream_pu_root / "build/lib/libstreampu.a").touch()
+            self.assertTrue(namespace["stream_pu_is_built"](stream_pu_root))
+
+    def test_dependency_prerequisites_require_cmake_320_or_newer(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        result = subprocess.CompletedProcess(
+            args=["cmake", "--version"], returncode=0, stdout="cmake version 3.19.7\n", stderr=""
+        )
+        with patch("shutil.which", return_value="/usr/bin/tool"):
+            with patch("subprocess.run", return_value=result):
+                self.assertIn("CMake >= 3.20", namespace["missing_install_tools"]())
 
     def test_confirmation_reprompts_and_cancellation_creates_no_files(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -154,6 +235,10 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             cmake = (project_dir / "CMakeLists.txt").read_text()
             self.assertIn("project(my_pipeline LANGUAGES CXX)", cmake)
+            readme = (project_dir / "README.md").read_text()
+            self.assertIn("<h2>Build and run</h2>", readme)
+            self.assertIn("cmake -S . -B build&#10;", readme)
+            self.assertNotIn("{{", readme)
             self.assertIn("src/Comparator.cpp", cmake)
             main_cpp = (project_dir / "src" / "main.cpp").read_text()
             self.assertIn('source["generate::out_data"] = comparator["check::in_ref"]', main_cpp)
