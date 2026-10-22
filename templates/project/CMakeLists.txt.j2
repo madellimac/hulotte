@@ -6,20 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(STREAMPU_ROOT "$ENV{STREAMPU_ROOT}" CACHE PATH "Path to the StreamPU source and build directories")
-if(NOT STREAMPU_ROOT)
-    message(FATAL_ERROR "Set STREAMPU_ROOT to a StreamPU installation")
-endif()
-
-find_path(STREAMPU_INCLUDE_DIR streampu.hpp
-    PATHS "${STREAMPU_ROOT}/include"
-    NO_DEFAULT_PATH
-)
-find_library(STREAMPU_LIBRARY NAMES streampu
-    PATHS "${STREAMPU_ROOT}/build/lib"
-    NO_DEFAULT_PATH
-)
-if(NOT STREAMPU_INCLUDE_DIR OR NOT STREAMPU_LIBRARY)
-    message(FATAL_ERROR "StreamPU headers or libstreampu.a were not found under ${STREAMPU_ROOT}")
+set(AFF3CT_ROOT "$ENV{AFF3CT_ROOT}" CACHE PATH "Path to the AFF3CT source and build directories; its embedded StreamPU replaces STREAMPU_ROOT")
+if(NOT STREAMPU_ROOT AND NOT AFF3CT_ROOT)
+    message(FATAL_ERROR "Set STREAMPU_ROOT to a StreamPU installation, or AFF3CT_ROOT to use AFF3CT")
 endif()
 
 find_package(Threads REQUIRED)
@@ -29,23 +18,65 @@ add_executable({{ executable_name }}
     src/PassThrough.cpp
     src/Comparator.cpp
 )
-target_include_directories({{ executable_name }} PRIVATE
-    "${STREAMPU_INCLUDE_DIR}"
-    "${STREAMPU_ROOT}/src"
-    "${STREAMPU_ROOT}/lib/rang/include"
-    "${STREAMPU_ROOT}/lib/json/include"
-    "${STREAMPU_ROOT}/lib/cpptrace/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
-target_link_libraries({{ executable_name }} PRIVATE "${STREAMPU_LIBRARY}" Threads::Threads)
+target_include_directories({{ executable_name }} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-find_library(CPPTRACE_LIBRARY NAMES cpptrace
-    PATHS "${STREAMPU_ROOT}/build/lib/cpptrace/lib"
-    NO_DEFAULT_PATH
-)
-if(CPPTRACE_LIBRARY)
-    target_link_libraries({{ executable_name }} PRIVATE "${CPPTRACE_LIBRARY}")
-    target_compile_definitions({{ executable_name }} PRIVATE SPU_STACKTRACE)
+if(AFF3CT_ROOT)
+    # AFF3CT embeds its own StreamPU: link only libaff3ct so StreamPU symbols are not duplicated.
+    file(GLOB HULOTTE_AFF3CT_LIBRARIES "${AFF3CT_ROOT}/build/lib/libaff3ct-*.a")
+    if(NOT EXISTS "${AFF3CT_ROOT}/include/aff3ct.hpp" OR NOT HULOTTE_AFF3CT_LIBRARIES)
+        message(FATAL_ERROR "AFF3CT headers or libaff3ct-*.a were not found under ${AFF3CT_ROOT}")
+    endif()
+    list(GET HULOTTE_AFF3CT_LIBRARIES 0 HULOTTE_AFF3CT_LIBRARY)
+    target_include_directories({{ executable_name }} PRIVATE
+        "${AFF3CT_ROOT}/include"
+        "${AFF3CT_ROOT}/lib/streampu/include"
+        "${AFF3CT_ROOT}/lib/streampu/src"
+        "${AFF3CT_ROOT}/lib/streampu/lib/rang/include"
+        "${AFF3CT_ROOT}/lib/streampu/lib/json/include"
+        "${AFF3CT_ROOT}/lib/streampu/lib/cpptrace/include"
+        "${AFF3CT_ROOT}/lib/cli/src"
+        "${AFF3CT_ROOT}/lib/MIPP/src"
+        "${AFF3CT_ROOT}/lib/date/include/date"
+    )
+    target_compile_definitions({{ executable_name }} PRIVATE AFF3CT_MULTI_PREC MIPP_ENABLE_BACKTRACE SPU_COLORS)
+    target_link_libraries({{ executable_name }} PRIVATE "${HULOTTE_AFF3CT_LIBRARY}" Threads::Threads)
+
+    file(GLOB_RECURSE HULOTTE_CPPTRACE_LIBRARIES "${AFF3CT_ROOT}/build/*libcpptrace*.a")
+    if(HULOTTE_CPPTRACE_LIBRARIES)
+        list(GET HULOTTE_CPPTRACE_LIBRARIES 0 HULOTTE_CPPTRACE_LIBRARY)
+        target_link_libraries({{ executable_name }} PRIVATE "${HULOTTE_CPPTRACE_LIBRARY}")
+        target_compile_definitions({{ executable_name }} PRIVATE SPU_STACKTRACE)
+    endif()
+else()
+    find_path(STREAMPU_INCLUDE_DIR streampu.hpp
+        PATHS "${STREAMPU_ROOT}/include"
+        NO_DEFAULT_PATH
+    )
+    find_library(STREAMPU_LIBRARY NAMES streampu
+        PATHS "${STREAMPU_ROOT}/build/lib"
+        NO_DEFAULT_PATH
+    )
+    if(NOT STREAMPU_INCLUDE_DIR OR NOT STREAMPU_LIBRARY)
+        message(FATAL_ERROR "StreamPU headers or libstreampu.a were not found under ${STREAMPU_ROOT}")
+    endif()
+
+    target_include_directories({{ executable_name }} PRIVATE
+        "${STREAMPU_INCLUDE_DIR}"
+        "${STREAMPU_ROOT}/src"
+        "${STREAMPU_ROOT}/lib/rang/include"
+        "${STREAMPU_ROOT}/lib/json/include"
+        "${STREAMPU_ROOT}/lib/cpptrace/include"
+    )
+    target_link_libraries({{ executable_name }} PRIVATE "${STREAMPU_LIBRARY}" Threads::Threads)
+
+    find_library(CPPTRACE_LIBRARY NAMES cpptrace
+        PATHS "${STREAMPU_ROOT}/build/lib/cpptrace/lib"
+        NO_DEFAULT_PATH
+    )
+    if(CPPTRACE_LIBRARY)
+        target_link_libraries({{ executable_name }} PRIVATE "${CPPTRACE_LIBRARY}")
+        target_compile_definitions({{ executable_name }} PRIVATE SPU_STACKTRACE)
+    endif()
 endif()
 
 file(GLOB HULOTTE_CUSTOM_MODULE_SOURCES CONFIGURE_DEPENDS

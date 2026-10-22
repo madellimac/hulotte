@@ -1,0 +1,63 @@
+{
+  "library": "streampu",
+  "namespace": "spu::module",
+  "include": "streampu.hpp",
+  "modules": [
+    {
+      "id": "Source_random",
+      "summary": "Random source producing frames of bits (0 or 1).",
+      "class": "Source_random",
+      "template_arguments": "int",
+      "arguments": [
+        {"name": "max_data_size", "type": "int", "example": "frame_size", "description": "Number of elements generated per frame."}
+      ],
+      "tasks": [
+        {
+          "name": "generate",
+          "sockets": [
+            {"name": "out_data", "direction": "out", "type": "int", "size": "max_data_size", "description": "Generated bits."},
+            {"name": "out_count", "direction": "out", "type": "uint32_t", "size": "1", "description": "Number of generated elements."}
+          ]
+        }
+      ],
+      "notes": [
+        "The constructor also accepts an optional seed as second argument (default 0); set_seed() changes it later."
+      ]
+    },
+    {
+      "id": "Relayer",
+      "summary": "Copies its input to its output; useful as a neutral pipeline stage.",
+      "class": "Relayer",
+      "template_arguments": "int",
+      "arguments": [
+        {"name": "n_elmts", "type": "size_t", "example": "frame_size", "description": "Number of elements per frame."}
+      ],
+      "tasks": [
+        {
+          "name": "relay",
+          "sockets": [
+            {"name": "in", "direction": "in", "type": "int", "size": "n_elmts", "description": "Input frame."},
+            {"name": "out", "direction": "out", "type": "int", "size": "n_elmts", "description": "Copy of the input frame."}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Sink_NO",
+      "summary": "Sink that consumes frames and discards them.",
+      "class": "Sink_NO",
+      "template_arguments": "int",
+      "arguments": [
+        {"name": "max_data_size", "type": "int", "example": "frame_size", "description": "Number of elements per frame."}
+      ],
+      "tasks": [
+        {
+          "name": "send",
+          "sockets": [
+            {"name": "in_data", "direction": "in", "type": "int", "size": "max_data_size", "description": "Frame to discard."}
+          ]
+        }
+      ]
+    }
+  ]
+}

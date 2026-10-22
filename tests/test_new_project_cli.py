@@ -151,6 +151,182 @@ class NewProjectCliTests(unittest.TestCase):
             with patch("subprocess.run", return_value=result):
                 self.assertIn("CMake >= 3.20", namespace["missing_install_tools"]())
 
+    def test_aff3ct_install_pins_revision_limits_submodules_and_builds_static_library(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            aff3ct_root = repository_root / "dependencies/aff3ct"
+            commands = []
+
+            def run_command(command, cwd=None):
+                commands.append(command)
+                if command[:3] == ["git", "clone", "--no-checkout"]:
+                    (Path(command[-1]) / ".git").mkdir(parents=True)
+                elif command[:2] == ["cmake", "--build"]:
+                    (aff3ct_root / "include").mkdir()
+                    (aff3ct_root / "include/aff3ct.hpp").touch()
+                    (aff3ct_root / "build/lib").mkdir(parents=True)
+                    (aff3ct_root / "build/lib/libaff3ct-4.1.2.a").touch()
+
+            install = namespace["install_aff3ct"]
+            with patch.dict(install.__globals__, {"missing_install_tools": lambda: [], "run_command": run_command}):
+                result = install(repository_root)
+
+            self.assertEqual(result, aff3ct_root)
+            self.assertIn(namespace["AFF3CT_REVISION"], commands[1])
+            self.assertEqual(commands[2][3:], ["submodule", "update", "--init", "--recursive", "--",
+                                               "lib/MIPP", "lib/cli", "lib/date", "lib/streampu"])
+            configure = commands[-2]
+            for option in ("-DAFF3CT_COMPILE_EXE=OFF", "-DAFF3CT_COMPILE_STATIC_LIB=ON", "-DSPU_TESTS=OFF"):
+                self.assertIn(option, configure)
+            self.assertLessEqual(int(commands[-1][commands[-1].index("--parallel") + 1]), 8)
+
+    def test_aff3ct_install_refuses_a_different_revision_and_status_reports_both_libraries(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            aff3ct_root = repository_root / "dependencies/aff3ct"
+            (aff3ct_root / ".git").mkdir(parents=True)
+            (aff3ct_root / "include").mkdir()
+            (aff3ct_root / "include/aff3ct.hpp").touch()
+            (aff3ct_root / "build/lib").mkdir(parents=True)
+            (aff3ct_root / "build/lib/libaff3ct-4.1.2.a").touch()
+            install = namespace["install_aff3ct"]
+            with patch.dict(install.__globals__, checkout_revision=lambda _path: "other"):
+                with self.assertRaisesRegex(ValueError, "Move it manually"):
+                    install(repository_root)
+                output = StringIO()
+                with redirect_stdout(output):
+                    ready = namespace["print_dependency_status"](repository_root)
+            self.assertFalse(ready)
+            self.assertIn("AFF3CT: built, but expected revision", output.getvalue())
+            self.assertIn("StreamPU: not installed", output.getvalue())
+
+    def test_deps_install_asks_for_the_library_in_a_terminal_and_defaults_to_streampu_otherwise(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        main = namespace["main"]
+        calls = []
+        stubs = {
+            "install_stream_pu": lambda root, dry_run=False: calls.append("streampu"),
+            "install_aff3ct": lambda root, dry_run=False: calls.append("aff3ct"),
+        }
+        with patch.dict(main.__globals__, stubs):
+            with patch("builtins.input", side_effect=["x", "2"]):
+                with patch("sys.stdin.isatty", return_value=True):
+                    with redirect_stdout(StringIO()) as output:
+                        self.assertEqual(main(["deps", "install"]), 0)
+            self.assertIn("Please answer 1 or 2.", output.getvalue())
+            with patch("builtins.input", side_effect=[""]):
+                with patch("sys.stdin.isatty", return_value=True):
+                    with redirect_stdout(StringIO()):
+                        main(["deps", "install"])
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")):
+                with patch("sys.stdin.isatty", return_value=False):
+                    main(["deps", "install"])
+                main(["deps", "install", "--library", "aff3ct"])
+        self.assertEqual(calls, ["aff3ct", "streampu", "streampu", "aff3ct"])
+
+    def test_module_list_shows_both_catalogs_and_can_filter_by_library(self):
+        result = subprocess.run([sys.executable, str(CLI_PATH), "module", "list"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for module_id in ("Source_random", "Modem_BPSK", "Channel_AWGN_LLR", "Quantizer_pow2_fast"):
+            self.assertIn(module_id, result.stdout)
+        result = subprocess.run([sys.executable, str(CLI_PATH), "module", "list", "--library", "streampu"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertIn("Source_random", result.stdout)
+        self.assertNotIn("Modem_BPSK", result.stdout)
+
+    def test_catalog_module_preview_describes_sockets_and_writes_no_files(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "catalog-project"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           capture_output=True, text=True, check=True, timeout=30)
+            before = sorted(path.relative_to(project_dir) for path in project_dir.rglob("*"))
+            main_before = (project_dir / "src/main.cpp").read_text()
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "aff3ct", "--name", "Channel_AWGN_LLR"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for expected in ("#include <aff3ct.hpp>",
+                             "aff3ct::module::Channel_AWGN_LLR<float> channel_awgn_llr(N);",
+                             "channel_awgn_llr[\"task::socket\"]",
+                             "in  CP  float[1]", "out  Y_N  float[N]", "-DAFF3CT_ROOT="):
+                self.assertIn(expected, result.stdout)
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "streampu", "--name", "Source_random"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("spu::module::Source_random<int> source_random(frame_size);", result.stdout)
+            self.assertNotIn("AFF3CT_ROOT", result.stdout)
+            self.assertEqual(sorted(path.relative_to(project_dir) for path in project_dir.rglob("*")), before)
+            self.assertEqual((project_dir / "src/main.cpp").read_text(), main_before)
+
+    def test_catalog_module_add_rejects_unknown_ids_and_projects_without_aff3ct_support(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "legacy-project"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           capture_output=True, text=True, check=True, timeout=30)
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "aff3ct", "--name", "Nope"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Unknown aff3ct module 'Nope'", result.stderr)
+            self.assertIn("Modem_BPSK", result.stderr)
+            cmake_path = project_dir / "CMakeLists.txt"
+            cmake_path.write_text(cmake_path.read_text().replace("AFF3CT_ROOT", "OTHER_ROOT"))
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "aff3ct", "--name", "Modem_BPSK"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("no AFF3CT support", result.stderr)
+
+    def test_module_assistant_offers_catalog_modules_by_number(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "assistant-project"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           capture_output=True, text=True, check=True, timeout=30)
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir)],
+                input="4\n3\n", capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Existing AFF3CT module from the catalog", result.stdout)
+            self.assertIn("aff3ct::module::Modem_BPSK<int32_t, float, float> modem_bpsk(N);", result.stdout)
+
+    def test_catalog_validation_reports_the_offending_file_and_field(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        load_catalog = namespace["load_catalog"]
+        for library in ("streampu", "aff3ct"):
+            self.assertTrue(load_catalog(library)["modules"])
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            script = Path(temporary_directory) / "hulotte.py"
+            shutil.copy2(CLI_PATH, script)
+            (Path(temporary_directory) / "catalog").mkdir()
+            broken = {"library": "aff3ct", "namespace": "x", "include": "x.hpp",
+                      "modules": [{"id": "A", "summary": "s", "class": "A", "arguments": [], "tasks": []}]}
+            (Path(temporary_directory) / "catalog/aff3ct.json").write_text(
+                __import__("json").dumps(broken), encoding="utf-8")
+            isolated = runpy.run_path(str(script))
+            with self.assertRaisesRegex(ValueError, r"aff3ct\.json.*'A' needs at least one task"):
+                isolated["load_catalog"]("aff3ct")
+
+    def test_generated_cmake_selects_aff3ct_over_streampu_and_requires_one_of_them(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "dual"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           capture_output=True, text=True, check=True, timeout=30)
+            cmake = (project_dir / "CMakeLists.txt").read_text()
+            self.assertIn("if(NOT STREAMPU_ROOT AND NOT AFF3CT_ROOT)", cmake)
+            self.assertIn("if(AFF3CT_ROOT)", cmake)
+            self.assertIn("libaff3ct-*.a", cmake)
+            self.assertLess(cmake.index("if(AFF3CT_ROOT)"), cmake.index("find_library(STREAMPU_LIBRARY"))
+            self.assertNotIn("{{", cmake)
+
     def test_confirmation_reprompts_and_cancellation_creates_no_files(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             project_dir = Path(temporary_directory) / "cancel-project"
@@ -520,6 +696,88 @@ class NewProjectCliTests(unittest.TestCase):
             partial_waveform = (project_dir / "traces/stalled.vcd").read_text()
             self.assertIn("$enddefinitions", partial_waveform)
             self.assertRegex(partial_waveform, r"(?m)^#\d+$")
+
+    @unittest.skipUnless(
+        os.environ.get("HULOTTE_TEST_AFF3CT_ROOT") and shutil.which("cmake"),
+        "Set HULOTTE_TEST_AFF3CT_ROOT and install CMake to run the AFF3CT integration test",
+    )
+    def test_aff3ct_catalog_chain_builds_and_responds_to_noise(self):
+        chain = r'''#include <aff3ct.hpp>
+
+#include "Comparator.hpp"
+
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+
+int main(int argc, char** argv) try
+{
+    constexpr int K = 8;
+    constexpr int N = 32;
+    std::vector<float> sigma(1, argc > 1 ? std::strtof(argv[1], nullptr) : 0.1f);
+    const int n_frames = argc > 2 ? std::atoi(argv[2]) : 20;
+
+    spu::module::Source_random<int> source(K);
+    aff3ct::module::Encoder_repetition_sys<int32_t> encoder(K, N);
+    aff3ct::module::Modem_BPSK<int32_t, float, float> modem(N);
+    aff3ct::module::Channel_AWGN_LLR<float> channel(N);
+    aff3ct::module::Decoder_repetition_std<int32_t, float> decoder(K, N);
+    spu::module::Comparator comparator(K);
+
+    source["generate::out_data"] = comparator["check::in_ref"];
+    source["generate::out_data"] = encoder["encode::U_K"];
+    encoder["encode::X_N"] = modem["modulate::X_N1"];
+    modem["modulate::X_N2"] = channel["add_noise::X_N"];
+    channel["add_noise::Y_N"] = modem["demodulate::Y_N1"];
+    modem["demodulate::Y_N2"] = decoder["decode_siho::Y_N"];
+    decoder["decode_siho::V_K"] = comparator["check::in_got"];
+    channel["add_noise::CP"] = sigma.data();
+    modem["demodulate::CP"] = sigma.data();
+
+    std::vector<spu::runtime::Task*> first_tasks;
+    first_tasks.push_back(&source("generate"));
+    spu::runtime::Sequence sequence(first_tasks);
+    for (int frame = 0; frame < n_frames; ++frame)
+        sequence.exec_seq();
+
+    if (comparator.has_errors())
+    {
+        std::cerr << "[FAIL] " << comparator.get_n_errors() << " mismatched element(s) over "
+                  << comparator.get_frame_count() << " frame(s)." << std::endl;
+        return 1;
+    }
+    std::cout << "[PASS] No mismatches over " << comparator.get_frame_count() << " frame(s)." << std::endl;
+    return 0;
+}
+catch (const std::exception& error)
+{
+    std::cerr << "[FAIL] " << error.what() << std::endl;
+    return 1;
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "aff3ct_chain"
+
+            def run(*command):
+                return subprocess.run(command, capture_output=True, text=True, timeout=900)
+
+            result = run(sys.executable, str(CLI_PATH), "init", str(project_dir))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            (project_dir / "src/main.cpp").write_text(chain)
+            result = run("cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
+                         "-DAFF3CT_ROOT=" + os.environ["HULOTTE_TEST_AFF3CT_ROOT"])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run("cmake", "--build", str(project_dir / "build"), "--parallel", "4")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            executable = str(project_dir / "build/aff3ct_chain")
+            result = run(executable, "0.05", "20")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[PASS] No mismatches over 20 frame(s).", result.stdout)
+
+            result = run(executable, "4.0", "100")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("mismatched element(s) over 100 frame(s)", result.stderr)
 
 
 if __name__ == "__main__":

@@ -24,4 +24,4 @@ Initial experimental source release. Publication and tagging are separate steps.
 
 ### Known limitations
 
-AFF3CT catalogs and installation, physical UART/Ethernet adapters, automatic graph editing, package installation via pip, and migration of older generated projects are not included. StreamPU can be installed with `hulotte deps install`. Hardware wrappers support equal-length 32-bit integer frames with a fixed cycle limit. See the README and installation guide for supported layouts and execution limits.
+AFF3CT codecs beyond the initial catalog, physical UART/Ethernet adapters, automatic graph editing, package installation via pip, and migration of older generated projects are not included. StreamPU and AFF3CT can be installed with `hulotte deps install`, and existing StreamPU and AFF3CT modules are described by `hulotte module list` and `module add --type streampu|aff3ct`. Hardware wrappers support equal-length 32-bit integer frames with a fixed cycle limit. See the README and installation guide for supported layouts and execution limits.

@@ -1,0 +1,37 @@
+{{ entry.id }} ({{ library }}): {{ entry.summary }}
+{%- if dependency_hint %}
+
+NOTE: {{ dependency_hint }}
+{%- endif %}
+
+Add this include to src/main.cpp:
+  #include <{{ include }}>
+
+Create the module in main():
+    {{ qualified_class }} {{ instance_name }}({{ call_arguments }});
+
+Constructor arguments:
+{%- for argument in entry.arguments %}
+  {{ argument.name }} ({{ argument.type }}): {{ argument.description }}
+{%- endfor %}
+
+Tasks and sockets (bind them as {{ instance_name }}["task::socket"]):
+{%- for task in entry.tasks %}
+  {{ task.name }}
+{%- for socket in task.sockets %}
+    {{ socket.direction }}  {{ socket.name }}  {{ socket.type }}[{{ socket.size }}]  {{ socket.description }}
+{%- endfor %}
+{%- endfor %}
+{%- if entry.notes %}
+
+Notes:
+{%- for note in entry.notes %}
+  - {{ note }}
+{%- endfor %}
+{%- endif %}
+{%- if library == "aff3ct" %}
+
+Configure the project with -DAFF3CT_ROOT={{ aff3ct_root }}. AFF3CT provides its own StreamPU, so STREAMPU_ROOT is not used.
+{%- endif %}
+
+main.cpp was not modified; copy the lines above into the graph yourself.

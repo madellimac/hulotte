@@ -1,0 +1,124 @@
+{
+  "library": "aff3ct",
+  "namespace": "aff3ct::module",
+  "include": "aff3ct.hpp",
+  "modules": [
+    {
+      "id": "Encoder_repetition_sys",
+      "summary": "Systematic repetition encoder.",
+      "class": "Encoder_repetition_sys",
+      "template_arguments": "int32_t",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of information bits."},
+        {"name": "N", "type": "int", "example": "N", "description": "Codeword length; must be a multiple of K."}
+      ],
+      "tasks": [
+        {
+          "name": "encode",
+          "sockets": [
+            {"name": "U_K", "direction": "in", "type": "int32_t", "size": "K", "description": "Information bits."},
+            {"name": "X_N", "direction": "out", "type": "int32_t", "size": "N", "description": "Codeword."}
+          ]
+        }
+      ],
+      "notes": [
+        "The optional third constructor argument (buffered_encoding, default true) must match the decoder."
+      ]
+    },
+    {
+      "id": "Decoder_repetition_std",
+      "summary": "Soft-input repetition decoder returning hard decisions.",
+      "class": "Decoder_repetition_std",
+      "template_arguments": "int32_t, float",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of information bits."},
+        {"name": "N", "type": "int", "example": "N", "description": "Codeword length; must be a multiple of K."}
+      ],
+      "tasks": [
+        {
+          "name": "decode_siho",
+          "sockets": [
+            {"name": "Y_N", "direction": "in", "type": "float", "size": "N", "description": "Input LLRs (a positive LLR favors bit 0)."},
+            {"name": "CWD", "direction": "out", "type": "int8_t", "size": "1", "description": "Codeword detection status."},
+            {"name": "V_K", "direction": "out", "type": "int32_t", "size": "K", "description": "Decoded information bits."}
+          ]
+        }
+      ],
+      "notes": [
+        "The optional third constructor argument (buffered_encoding, default true) must match the encoder."
+      ]
+    },
+    {
+      "id": "Modem_BPSK",
+      "summary": "BPSK modulator and LLR demodulator.",
+      "class": "Modem_BPSK",
+      "template_arguments": "int32_t, float, float",
+      "arguments": [
+        {"name": "N", "type": "int", "example": "N", "description": "Frame size in bits."}
+      ],
+      "tasks": [
+        {
+          "name": "modulate",
+          "sockets": [
+            {"name": "X_N1", "direction": "in", "type": "int32_t", "size": "N", "description": "Bits (0 is mapped to +1, 1 to -1)."},
+            {"name": "X_N2", "direction": "out", "type": "float", "size": "N", "description": "BPSK symbols."}
+          ]
+        },
+        {
+          "name": "demodulate",
+          "sockets": [
+            {"name": "CP", "direction": "in", "type": "float", "size": "1", "description": "Noise standard deviation (sigma)."},
+            {"name": "Y_N1", "direction": "in", "type": "float", "size": "N", "description": "Received symbols."},
+            {"name": "Y_N2", "direction": "out", "type": "float", "size": "N", "description": "LLRs (2 * y / sigma^2; positive favors bit 0)."}
+          ]
+        }
+      ],
+      "notes": [
+        "Bind the CP socket to the same float array as the channel, for example: std::vector<float> sigma(1, 0.5f); then modem_bpsk[\"demodulate::CP\"] = sigma.data();"
+      ]
+    },
+    {
+      "id": "Channel_AWGN_LLR",
+      "summary": "Additive white Gaussian noise channel.",
+      "class": "Channel_AWGN_LLR",
+      "template_arguments": "float",
+      "arguments": [
+        {"name": "N", "type": "int", "example": "N", "description": "Frame size in symbols."}
+      ],
+      "tasks": [
+        {
+          "name": "add_noise",
+          "sockets": [
+            {"name": "CP", "direction": "in", "type": "float", "size": "1", "description": "Noise standard deviation (sigma)."},
+            {"name": "X_N", "direction": "in", "type": "float", "size": "N", "description": "Clean symbols."},
+            {"name": "Y_N", "direction": "out", "type": "float", "size": "N", "description": "Noisy symbols."}
+          ]
+        }
+      ],
+      "notes": [
+        "For real BPSK symbols of amplitude 1, sigma = sqrt(1 / (2 * Es/N0)) with Es/N0 as a linear ratio.",
+        "Bind the CP socket to a float array holding sigma, for example: std::vector<float> sigma(1, 0.5f); then channel_awgn_llr[\"add_noise::CP\"] = sigma.data();",
+        "The constructor also accepts a Gaussian generator implementation and a seed after N."
+      ]
+    },
+    {
+      "id": "Quantizer_pow2_fast",
+      "summary": "Fixed-point quantizer with a power-of-two scale.",
+      "class": "Quantizer_pow2_fast",
+      "template_arguments": "float, short",
+      "arguments": [
+        {"name": "N", "type": "int", "example": "N", "description": "Frame size."},
+        {"name": "fixed_point_pos", "type": "short", "example": "4", "description": "Number of fractional bits."}
+      ],
+      "tasks": [
+        {
+          "name": "process",
+          "sockets": [
+            {"name": "Y_N1", "direction": "in", "type": "float", "size": "N", "description": "Floating-point values."},
+            {"name": "Y_N2", "direction": "out", "type": "short", "size": "N", "description": "Quantized values."}
+          ]
+        }
+      ]
+    }
+  ]
+}

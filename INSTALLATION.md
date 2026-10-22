@@ -6,7 +6,7 @@ Hulotte is not currently distributed as a Python package. Run `hulotte.py` from 
 
 Obtain the source archive or checkout for the intended release, and keep its `hulotte.py`, `requirements.txt`, and `templates/` directory together. Local development dependencies and Python environments are not included in a source distribution.
 
-The active workflow requires StreamPU. Verilator is optional and only needed when creating a Verilator-backed module. AFF3CT module instantiation, UART, and Ethernet are not yet integrated.
+The active workflow requires StreamPU, or AFF3CT when you want to use AFF3CT modules (AFF3CT embeds its own StreamPU). Verilator is optional and only needed when creating a Verilator-backed module. UART and Ethernet are not yet integrated.
 
 ## Requirements
 
@@ -14,8 +14,8 @@ The active workflow requires StreamPU. Verilator is optional and only needed whe
 - Jinja2 3.1 or later, as specified in `requirements.txt`.
 - CMake 3.20 or later.
 - A C++17 compiler, such as GCC or Clang.
-- Git, required by `hulotte deps install` to retrieve StreamPU.
-- StreamPU, installed by the following steps or supplied as another built source tree.
+- Git, required by `hulotte deps install` to retrieve StreamPU or AFF3CT.
+- StreamPU or AFF3CT, installed by the following steps or supplied as another built source tree.
 - Verilator 5 or later, only if you want to generate and build a Verilator-backed module.
 
 On Ubuntu, the compiler and Git can be installed with:
@@ -109,6 +109,30 @@ Run that command from the Hulotte repository root. You can use another path if S
 
 Do not assume `dependencies/streampu` exists after extracting a source release; it is local development data and is not bundled.
 
+## Install AFF3CT
+
+Choose AFF3CT when your pipeline uses AFF3CT modules. AFF3CT embeds its own StreamPU (v1.9.0), which is the one used by those projects; the standalone StreamPU above is not linked. Run `python3 hulotte.py deps install` and answer `2` when asked which library to install, or select it directly:
+
+```sh
+# Preview the clone and build steps without changing files.
+python3 hulotte.py deps install --library aff3ct --dry-run
+# Clone and build AFF3CT under dependencies/aff3ct.
+python3 hulotte.py deps install --library aff3ct
+```
+
+Without `--library`, the command asks in a terminal and installs StreamPU only when it is not run in one. The installer clones AFF3CT at revision `60e113d4de30c6954e03ff31770741d28e6fcc07` (v4.1.2), initializes only the submodules needed for the library (`lib/MIPP`, `lib/cli`, `lib/date` and `lib/streampu`), and builds a Release static library without the AFF3CT executable. Building AFF3CT compiles a large template library and uses a lot of memory, so parallel jobs are capped at 8.
+
+The two libraries can coexist under `dependencies/`. A generated project selects one at configure time:
+
+```sh
+# StreamPU only.
+cmake -S . -B build -DSTREAMPU_ROOT=/path/to/hulotte/dependencies/streampu
+# AFF3CT modules; this takes precedence and STREAMPU_ROOT is ignored.
+cmake -S . -B build -DAFF3CT_ROOT=/path/to/hulotte/dependencies/aff3ct
+```
+
+Projects generated before AFF3CT support do not contain the `AFF3CT_ROOT` block in `CMakeLists.txt`; create a new project or copy the block from `templates/project/CMakeLists.txt.j2`.
+
 ## Generate and build a project
 
 Run these commands from the Hulotte repository root, in the same shell where `STREAMPU_ROOT` is set:
@@ -194,6 +218,6 @@ If a hardware frame times out, inspect the VCD and the Ready/Valid protocol. The
 
 ## Tested configuration
 
-The release checks were run on Linux with Python 3.12.3, Jinja2 3.1.2, CMake 3.28.3, GCC 13.3, Verilator 5.028, and StreamPU revision `b036089b872a950ae5fe6eae31e7963a4e043670`. Other tool versions satisfying the declared requirements have not all been certified. Waveform file contents are tested automatically; graphical viewer behavior is not part of the automated release checks.
+The release checks were run on Linux with Python 3.12.3, Jinja2 3.1.2, CMake 3.28.3, GCC 13.3, Verilator 5.028, StreamPU revision `b036089b872a950ae5fe6eae31e7963a4e043670`, and AFF3CT revision `60e113d4de30c6954e03ff31770741d28e6fcc07` (v4.1.2). Other tool versions satisfying the declared requirements have not all been certified. Waveform file contents are tested automatically; graphical viewer behavior is not part of the automated release checks.
 
-The current generator creates a StreamPU source, a custom `PassThrough` module, and a `Comparator` that checks the module output against the source. The guided `hulotte.py module add <project>` command can create custom C++ modules or Verilator-backed adapters; their C++ integration is shown for manual insertion into `main.cpp`. Native/AFF3CT catalogs and physical-device I/O integrations are not yet available.
+The current generator creates a StreamPU source, a custom `PassThrough` module, and a `Comparator` that checks the module output against the source. The guided `hulotte.py module add <project>` command can create custom C++ modules or Verilator-backed adapters, and describe modules from the StreamPU and AFF3CT catalogs; their C++ integration is shown for manual insertion into `main.cpp`. Physical-device I/O integrations are not yet available.

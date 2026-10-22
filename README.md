@@ -11,13 +11,15 @@ Version **0.1.0** is an initial experimental source release. See [CHANGELOG.md](
 - The comparator checks the custom module output against the original source and returns a failure exit code if any elements differ.
 - The executable processes three frames and includes a CTest smoke test.
 - The generated CMake project locates StreamPU through the `STREAMPU_ROOT` environment variable.
-- `hulotte deps install` installs the pinned StreamPU revision under `dependencies/`; `hulotte doctor` checks build tools and dependency status.
+- `hulotte deps install` installs the pinned StreamPU revision under `dependencies/`, or AFF3CT with its embedded StreamPU; it asks which one in a terminal. `hulotte doctor` checks build tools and dependency status.
 - `hulotte.py module add <project>` guides you through creating a custom C++ StreamPU module and prints the code to integrate manually.
 - The same assistant can generate a StreamPU adapter and Ready/Valid SystemVerilog starter block for Verilator.
 - CMake automatically discovers added module sources under `src/custom/` on the next build.
 - CMake enables Verilator only when a block exists under `src/hw/`.
 
-The assistant does not yet offer a catalog of built-in StreamPU or AFF3CT modules, and it does not edit `main.cpp` for you.
+- `hulotte module list` shows the catalog of existing StreamPU and AFF3CT modules; `hulotte module add <project> --type streampu|aff3ct --name <id>` prints how to use one (include, instantiation, tasks and sockets) without writing files.
+
+The assistant does not edit `main.cpp` for you.
 
 See [INSTALLATION.md](INSTALLATION.md) for setup and installation instructions.
 
@@ -25,10 +27,10 @@ See [INSTALLATION.md](INSTALLATION.md) for setup and installation instructions.
 
 - Python 3.9 or later and Jinja2 (listed in `requirements.txt`).
 - CMake 3.20 or later and a C++17 compiler.
-- StreamPU, installed with `python3 hulotte.py deps install`.
+- StreamPU, or AFF3CT (which embeds its own StreamPU), installed with `python3 hulotte.py deps install`.
 - Verilator 5 or later is only required when generating a Verilator-backed module.
 
-StreamPU is installed under `dependencies/streampu` by `hulotte deps install`. For another installation, set `STREAMPU_ROOT` to its root directory.
+StreamPU is installed under `dependencies/streampu` and AFF3CT under `dependencies/aff3ct` by `hulotte deps install`. For another installation, set `STREAMPU_ROOT` or `AFF3CT_ROOT` to its root directory. A project uses either StreamPU or AFF3CT; when `AFF3CT_ROOT` is set it takes precedence and `STREAMPU_ROOT` is ignored.
 
 Install the Python requirements in a virtual environment as described in [INSTALLATION.md](INSTALLATION.md#install-the-python-requirements).
 
@@ -80,6 +82,30 @@ python3 hulotte.py module add "$HOME/projects/my_pipeline" --type verilator --na
 The generated SystemVerilog block starts as a Ready/Valid passthrough example. Edit `src/hw/FilterBlock.sv` to implement the desired hardware behavior. CMake discovers `.sv` files, invokes Verilator during configuration, and compiles the generated model on the next build. The assistant prints the wrapper instantiation and socket bindings; integrate them into `src/main.cpp` manually.
 
 Replace the existing processing-path bindings when inserting a new module; do not connect two producers to the same input socket. Newly added classes are under `hulotte::module`, while the initial example `PassThrough` and `Comparator` are under `spu::module`.
+
+## Use an existing StreamPU or AFF3CT module
+
+The catalog describes modules that already exist in StreamPU and AFF3CT:
+
+```sh
+# List the catalog.
+python3 hulotte.py module list
+# Show how to use the AFF3CT AWGN channel in a project.
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --type aff3ct --name Channel_AWGN_LLR
+```
+
+The command prints the include, the instantiation, and the tasks and sockets to bind (`module["task::socket"]`). It writes no file and does not modify `main.cpp`. The initial catalog covers `Source_random`, `Relayer` and `Sink_NO` (StreamPU), and `Encoder_repetition_sys`, `Decoder_repetition_std`, `Modem_BPSK`, `Channel_AWGN_LLR` and `Quantizer_pow2_fast` (AFF3CT). The catalog entries are JSON files under `catalog/`.
+
+To build a project with AFF3CT modules, install AFF3CT and configure with its root instead of the StreamPU one:
+
+```sh
+# Install AFF3CT with its embedded StreamPU (choose option 2 when asked).
+python3 hulotte.py deps install --library aff3ct
+# Configure the project against AFF3CT (path of your Hulotte checkout).
+cmake -S . -B build -DAFF3CT_ROOT=/path/to/hulotte/dependencies/aff3ct
+```
+
+AFF3CT noise is passed through the `CP` socket of the channel and the demodulator: bind both to the same one-element `float` array holding the noise standard deviation (sigma). Projects created before this feature have no AFF3CT support in their `CMakeLists.txt`; the assistant says so rather than generating a snippet that cannot build.
 
 ## View hardware waveforms
 
@@ -136,7 +162,7 @@ Templates use explicit rendering contexts and `StrictUndefined`: a missing varia
 
 ## Not yet available
 
-The new workflow does not yet provide a catalog of built-in StreamPU/AFF3CT modules, AFF3CT module instantiation or installation, or UART/Ethernet transports. StreamPU installation is available through `hulotte deps install`. Verilator-backed modules are available when Verilator 5 or later is installed. `dependencies/aff3ct` is present locally but is not used by this generator.
+The new workflow does not yet provide AFF3CT codecs beyond the initial catalog (one repetition codec, BPSK modem, AWGN channel and a quantizer), or UART/Ethernet transports. StreamPU and AFF3CT installation is available through `hulotte deps install`. Verilator-backed modules are available when Verilator 5 or later is installed.
 
 The previous generator, its templates and shared components, example projects, and prototypes are archived under `legacy/` for reference. They are not part of the new workflow.
 
