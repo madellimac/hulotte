@@ -38,3 +38,8 @@ Makefile
 *.a
 *.so
 *.exe
+
+# PQC : clone et dépendances régénérés par install_pqc_full.sh
+pqc/
+pqc_install/
+pqc_dependencies_build/
