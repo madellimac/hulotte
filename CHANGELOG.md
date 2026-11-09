@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Generated projects build in `Release` by default when no build type is given.
+- Generated projects fail at CMake configuration with an explicit message when `src/main.cpp` includes `aff3ct.hpp` without `AFF3CT_ROOT`.
+
 ## 0.1.0
 
 Initial experimental source release. Publication and tagging are separate steps.

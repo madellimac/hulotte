@@ -5,10 +5,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 set(STREAMPU_ROOT "$ENV{STREAMPU_ROOT}" CACHE PATH "Path to the StreamPU source and build directories")
 set(AFF3CT_ROOT "$ENV{AFF3CT_ROOT}" CACHE PATH "Path to the AFF3CT source and build directories; its embedded StreamPU replaces STREAMPU_ROOT")
 if(NOT STREAMPU_ROOT AND NOT AFF3CT_ROOT)
     message(FATAL_ERROR "Set STREAMPU_ROOT to a StreamPU installation, or AFF3CT_ROOT to use AFF3CT")
+endif()
+
+# Fail at configuration rather than compilation when the graph uses AFF3CT modules without AFF3CT_ROOT.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp" HULOTTE_MAIN_SOURCE)
+if(NOT AFF3CT_ROOT AND HULOTTE_MAIN_SOURCE MATCHES "#include[ \t]*[<\"]aff3ct\\.hpp")
+    message(FATAL_ERROR "src/main.cpp includes aff3ct.hpp: set AFF3CT_ROOT instead of STREAMPU_ROOT")
 endif()
 
 find_package(Threads REQUIRED)

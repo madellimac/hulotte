@@ -105,6 +105,8 @@ python3 hulotte.py deps install --library aff3ct
 cmake -S . -B build -DAFF3CT_ROOT=/path/to/hulotte/dependencies/aff3ct
 ```
 
+When `src/main.cpp` includes `aff3ct.hpp` and `AFF3CT_ROOT` is not set, CMake stops at configuration with an explicit message. Only `main.cpp` is checked; an AFF3CT include in `src/custom/` alone is not detected.
+
 AFF3CT noise is passed through the `CP` socket of the channel and the demodulator: bind both to the same one-element `float` array holding the noise standard deviation (sigma). Projects created before this feature have no AFF3CT support in their `CMakeLists.txt`; the assistant says so rather than generating a snippet that cannot build.
 
 ## View hardware waveforms
@@ -174,6 +176,6 @@ The previous generator, its templates and shared components, example projects, a
 - A hardware adapter exchanges exactly `frame_size` 32-bit integers on both input and output. Different frame lengths and framing protocols need an adapted wrapper. A frame exceeding `frame_size * 16 + 64` cycles raises an explicit error.
 - Each hardware instance has an independent simulation context and time, reset once at construction and retained between frames. Cross-block, cycle-accurate interaction requires a shared RTL top-level rather than multiple frame-based adapters.
 - VCD output is optional and sequential; worker clones do not record traces. Parallel hardware execution and clone state restoration are not certified in this release.
-- Debug output is enabled in the default example. For throughput measurements, disable task debug output and VCD recording, and configure CMake with `-DCMAKE_BUILD_TYPE=Release`.
+- Debug output is enabled in the default example. For throughput measurements, disable task debug output and VCD recording. Generated projects build in `Release` by default; pass `-DCMAKE_BUILD_TYPE=Debug` to debug.
 
 For a source distribution, include `hulotte.py`, `requirements.txt`, `templates/`, `tests/`, `README.md`, `INSTALLATION.md`, `CHANGELOG.md`, and `LICENSE`. Do not bundle local environments, `dependencies/`, `Sandbox/`, caches, or generated build products. `legacy/` is reference material, not required at runtime. Committing, tagging, and publishing are separate release steps.

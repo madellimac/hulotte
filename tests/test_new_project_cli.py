@@ -327,6 +327,36 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertLess(cmake.index("if(AFF3CT_ROOT)"), cmake.index("find_library(STREAMPU_LIBRARY"))
             self.assertNotIn("{{", cmake)
 
+    def test_generated_cmake_defaults_to_release_and_detects_aff3ct_include(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "release"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           capture_output=True, text=True, check=True, timeout=30)
+            cmake = (project_dir / "CMakeLists.txt").read_text()
+            self.assertIn("if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)", cmake)
+            self.assertIn("set(CMAKE_BUILD_TYPE Release CACHE STRING", cmake)
+            self.assertIn("CMAKE_CONFIGURE_DEPENDS", cmake)
+            self.assertIn('MATCHES "#include[ \\t]*[<\\"]aff3ct\\\\.hpp")', cmake)
+            self.assertLess(cmake.index("aff3ct\\\\.hpp"), cmake.index("if(AFF3CT_ROOT)"))
+
+    @unittest.skipIf(shutil.which("cmake") is None, "CMake is not installed")
+    def test_configuring_aff3ct_graph_without_aff3ct_root_fails_with_clear_message(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "needs_aff3ct"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           capture_output=True, text=True, check=True, timeout=30)
+            main_path = project_dir / "src/main.cpp"
+            main_path.write_text("#include <aff3ct.hpp>\n" + main_path.read_text())
+            environment = {key: value for key, value in os.environ.items()
+                           if key not in ("AFF3CT_ROOT", "STREAMPU_ROOT")}
+            result = subprocess.run(
+                ["cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
+                 f"-DSTREAMPU_ROOT={temporary_directory}/missing_streampu"],
+                capture_output=True, text=True, timeout=120, env=environment,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("src/main.cpp includes aff3ct.hpp: set AFF3CT_ROOT", result.stderr)
+
     def test_confirmation_reprompts_and_cancellation_creates_no_files(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             project_dir = Path(temporary_directory) / "cancel-project"
