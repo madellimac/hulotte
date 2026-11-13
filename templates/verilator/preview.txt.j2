@@ -3,14 +3,27 @@ Files to create in {{ project_dir }}:
     src/custom/{{ class_name }}.hpp
     src/custom/{{ class_name }}.cpp
 
+Stream interface:
+    input   {{ in_type }}, {{ in_lanes }} element(s) of {{ in_width }} bit(s) per beat
+    output  {{ out_type }}, {{ out_lanes }} element(s) of {{ out_width }} bit(s) per beat, {{ "sign" if out_sign_extend else "zero" }}-extended
+    Lane 0 occupies the least significant bits of a beat.
+
 Add this include to src/main.cpp:
     #include "custom/{{ class_name }}.hpp"
 
 Create the StreamPU adapter in main():
+{%- if passthrough %}
     hulotte::module::{{ class_name }} {{ instance_name }}(frame_size);
+{%- else %}
+    hulotte::module::{{ class_name }} {{ instance_name }}(n_in, n_out);
+{%- endif %}
 
 Or enable an optional VCD trace (use a distinct path per instance):
+{%- if passthrough %}
     hulotte::module::{{ class_name }} {{ instance_name }}(frame_size, "traces/{{ instance_name }}.vcd");
+{%- else %}
+    hulotte::module::{{ class_name }} {{ instance_name }}(n_in, n_out, "traces/{{ instance_name }}.vcd");
+{%- endif %}
 
 Open the trace after running the simulation:
     surfer traces/{{ instance_name }}.vcd
@@ -22,4 +35,14 @@ Replace the default processing-path bindings with these lines; keep only one ref
     source["generate::out_data"] = {{ instance_name }}["simulate::input"];
     {{ instance_name }}["simulate::output"] = comparator["check::in_got"];
 
+Measure cycles: with F frames per execution (sequence.set_n_frames(F) for a whole graph), the
+adapter streams the F frames back to back; print the latency and the interval between frames
+after the run:
+    {{ instance_name }}.print_cycle_stats(std::cout);
+{%- if passthrough %}
+
     The generated SystemVerilog is a Ready/Valid passthrough example; edit it to implement your hardware behavior.
+{%- else %}
+
+    The generated SystemVerilog is a skeleton that produces no output; implement your hardware behavior in it.
+{%- endif %}

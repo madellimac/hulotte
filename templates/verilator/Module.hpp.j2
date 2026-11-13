@@ -1,6 +1,9 @@
 #pragma once
 
 #include <streampu.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <iosfwd>
 #include <memory>
 #include <string>
 
@@ -10,19 +13,63 @@ class VerilatedVcdC;
 
 namespace hulotte::module {
 
+// StreamPU adapter around the Verilator model of src/hw/{{ class_name }}.sv.
+// Task "simulate": socket "input" holds n_in elements of in_t per frame, socket "output"
+// n_out elements of out_t. With set_n_frames(F), one execution streams F frames back to
+// back through the model, which measures the latency and the initiation interval.
 class {{ class_name }} : public spu::module::Stateful
 {
 public:
+    using in_t = {{ in_type }};
+    using out_t = {{ out_type }};
+    static constexpr unsigned in_width = {{ in_width }};   // bits per input element
+    static constexpr unsigned in_lanes = {{ in_lanes }};   // input elements per beat
+    static constexpr unsigned out_width = {{ out_width }}; // bits per output element
+    static constexpr unsigned out_lanes = {{ out_lanes }}; // output elements per beat
+
     explicit {{ class_name }}(int frame_size, const std::string& trace_path = "");
+    {{ class_name }}(int n_in, int n_out, const std::string& trace_path = "");
     ~{{ class_name }}() override;
     {{ class_name }}* clone() const override;
 
+    // Cycle counts accumulated over all simulated frames.
+    // Latency: cycles from the first input beat accepted to the last output beat of a frame
+    // (0 for a combinational single-beat block). Interval: cycles between the first input
+    // beats of two consecutive frames of the same execution.
+    std::uint64_t get_frame_count() const;
+    std::uint64_t get_latency_min() const;
+    std::uint64_t get_latency_max() const;
+    double get_latency_mean() const;
+    std::uint64_t get_interval_count() const;
+    std::uint64_t get_interval_min() const;
+    std::uint64_t get_interval_max() const;
+    double get_interval_mean() const;
+    void reset_cycle_stats();
+    void print_cycle_stats(std::ostream& stream) const;
+
+    // Cycles without any transfer before the frame is declared stalled.
+    void set_stall_limit(std::uint64_t cycles);
+    std::uint64_t get_stall_limit() const;
+
 private:
-    {{ class_name }}(int frame_size, bool create_task, const std::string& trace_path);
-    void process_frame(const int* input, int* output);
+    struct Cycle_range
+    {
+        std::uint64_t count = 0;
+        std::uint64_t min = 0;
+        std::uint64_t max = 0;
+        std::uint64_t sum = 0;
+        void add(std::uint64_t value);
+    };
+
+    {{ class_name }}(int n_in, int n_out, bool create_task, const std::string& trace_path);
+    void process_frames(const in_t* input, out_t* output, std::size_t n_frames);
     void evaluate();
 
-    int frame_size;
+    int n_in;
+    int n_out;
+    std::uint64_t stall_limit = 100000;
+    Cycle_range latency;
+    Cycle_range interval;
     std::shared_ptr<const std::string> trace_reservation;
     std::unique_ptr<VerilatedContext> context;
     std::unique_ptr<VModel_{{ class_name }}> model;

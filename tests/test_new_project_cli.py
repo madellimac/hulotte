@@ -589,13 +589,71 @@ class NewProjectCliTests(unittest.TestCase):
             adapter_header = (project_dir / "src/custom/Incrementer.hpp").read_text()
             adapter_source = (project_dir / "src/custom/Incrementer.cpp").read_text()
             cmake = (project_dir / "CMakeLists.txt").read_text()
-            self.assertIn("input  logic [31:0] in_data", system_verilog)
+            self.assertIn("parameter int IN_WIDTH  = 32", system_verilog)
+            self.assertIn("input  logic [IN_LANES*IN_WIDTH-1:0]   in_data", system_verilog)
+            self.assertIn("input  logic                           in_last", system_verilog)
+            self.assertIn("assign out_data = in_data;", system_verilog)
             self.assertIn("namespace hulotte::module", adapter_header)
+            self.assertIn("using in_t = int;", adapter_header)
             self.assertIn("VModel_Incrementer", adapter_source)
+            self.assertIn("this->set_single_wave(true);", adapter_source)
             self.assertIn("verilate(", cmake)
             self.assertIn("hulotte::module::Incrementer incrementer(frame_size);", result.stdout)
             self.assertIn("Ready/Valid passthrough example", result.stdout)
             self.assertEqual(main_path.read_text(), main_before)
+
+    def test_verilator_module_accepts_an_asymmetric_stream_interface(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "decoder-project"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           check=True, capture_output=True, text=True)
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "verilator",
+                 "--name", "Decoder", "--in-type", "int8_t", "--in-width", "6", "--in-lanes", "16",
+                 "--out-type", "int32_t", "--out-width", "1", "--out-lanes", "4", "--yes"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            system_verilog = (project_dir / "src/hw/Decoder.sv").read_text()
+            adapter_header = (project_dir / "src/custom/Decoder.hpp").read_text()
+            self.assertIn("parameter int IN_WIDTH  = 6", system_verilog)
+            self.assertIn("parameter int IN_LANES  = 16", system_verilog)
+            self.assertIn("parameter int OUT_WIDTH = 1", system_verilog)
+            self.assertIn("parameter int OUT_LANES = 4", system_verilog)
+            self.assertIn("assign out_valid = 1'b0;", system_verilog)
+            self.assertNotIn("assign out_data = in_data;", system_verilog)
+            self.assertIn("using in_t = int8_t;", adapter_header)
+            self.assertIn("using out_t = int32_t;", adapter_header)
+            self.assertIn("Decoder(int n_in, int n_out, const std::string& trace_path = \"\");", adapter_header)
+            self.assertIn("hulotte::module::Decoder decoder(n_in, n_out);", result.stdout)
+            self.assertIn("int8_t, 16 element(s) of 6 bit(s) per beat", result.stdout)
+            self.assertIn("skeleton", result.stdout)
+
+    def test_stream_interface_options_are_validated(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "invalid-interface"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           check=True, capture_output=True, text=True)
+            cases = (
+                (["--type", "verilator", "--in-type", "int8_t", "--in-width", "9"], "--in-width must be between 1 and 8"),
+                (["--type", "verilator", "--out-lanes", "0"], "--out-lanes must be a positive integer"),
+                (["--type", "verilator", "--in-lanes", "200"], "exceeds 4096 bits"),
+                (["--type", "custom", "--in-type", "int8_t"], "only apply to verilator modules"),
+            )
+            for options, message in cases:
+                result = subprocess.run(
+                    [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--name", "Block", "--yes", *options],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 1, options)
+                self.assertIn(message, result.stderr)
+                self.assertFalse((project_dir / "src/custom/Block.hpp").exists())
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--name", "Block",
+                 "--type", "verilator", "--in-type", "float"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 2)
 
 
     @unittest.skipUnless(
@@ -727,6 +785,126 @@ class NewProjectCliTests(unittest.TestCase):
             partial_waveform = (project_dir / "traces/stalled.vcd").read_text()
             self.assertIn("$enddefinitions", partial_waveform)
             self.assertRegex(partial_waveform, r"(?m)^#\d+$")
+
+    @unittest.skipUnless(
+        os.environ.get("HULOTTE_TEST_STREAMPU_ROOT") and shutil.which("verilator") and shutil.which("cmake"),
+        "Set HULOTTE_TEST_STREAMPU_ROOT and install CMake/Verilator to run the asymmetric Verilator test",
+    )
+    def test_verilator_wide_asymmetric_block_streams_frames_and_counts_cycles(self):
+        # 16 signed 6-bit LLRs per beat (a 96-bit bus) become 8 hard decisions per beat:
+        # decision i is the sign of llr[2i] + llr[2i+1], registered once (one cycle of latency).
+        rtl = r'''module PairDecoder #(
+    parameter int IN_WIDTH  = 6,
+    parameter int IN_LANES  = 16,
+    parameter int OUT_WIDTH = 1,
+    parameter int OUT_LANES = 8
+) (
+    input  logic                           clk,
+    input  logic                           reset,
+    input  logic [IN_LANES*IN_WIDTH-1:0]   in_data,
+    input  logic                           in_valid,
+    input  logic                           in_last,
+    output logic                           in_ready,
+    output logic [OUT_LANES*OUT_WIDTH-1:0] out_data,
+    output logic                           out_valid,
+    input  logic                           out_ready
+);
+    logic [OUT_LANES-1:0] decisions;
+    logic [OUT_LANES-1:0] decisions_q;
+    logic valid_q;
+    always_comb
+        for (int i = 0; i < OUT_LANES; i++) begin
+            automatic logic signed [IN_WIDTH:0] sum =
+                $signed(in_data[2*i*IN_WIDTH +: IN_WIDTH]) + $signed(in_data[(2*i+1)*IN_WIDTH +: IN_WIDTH]);
+            decisions[i] = sum < 0;
+        end
+    assign in_ready = !reset && (!valid_q || out_ready);
+    always_ff @(posedge clk)
+        if (reset)
+            valid_q <= 1'b0;
+        else if (in_valid && in_ready) begin
+            decisions_q <= decisions;
+            valid_q <= 1'b1;
+        end else if (out_ready)
+            valid_q <= 1'b0;
+    assign out_data = decisions_q;
+    assign out_valid = valid_q;
+endmodule
+'''
+        main = r'''#include <streampu.hpp>
+
+#include "custom/PairDecoder.hpp"
+
+#include <cstdint>
+#include <iostream>
+#include <vector>
+
+int main() try
+{
+    constexpr int n_in = 32, n_out = 16, n_frames = 4;
+    hulotte::module::PairDecoder decoder(n_in, n_out);
+    decoder.set_n_frames(n_frames);
+
+    std::vector<int8_t> llrs(n_in * n_frames);
+    std::vector<int32_t> expected(n_out * n_frames);
+    for (int f = 0; f < n_frames; ++f)
+        for (int i = 0; i < n_out; ++i)
+        {
+            const int a = ((f * 7 + i * 5) % 64) - 32, b = ((f * 3 + i * 11) % 61) - 30;
+            llrs[f * n_in + 2 * i] = static_cast<int8_t>(a);
+            llrs[f * n_in + 2 * i + 1] = static_cast<int8_t>(b);
+            expected[f * n_out + i] = a + b < 0 ? 1 : 0;
+        }
+    decoder["simulate::input"] = llrs.data();
+    decoder("simulate").exec();
+
+    const auto* output = static_cast<const int32_t*>(decoder["simulate::output"].get_dataptr());
+    for (int i = 0; i < n_out * n_frames; ++i)
+        if (output[i] != expected[i])
+        {
+            std::cerr << "[FAIL] element " << i << ": got " << output[i] << ", expected " << expected[i] << std::endl;
+            return 1;
+        }
+    decoder.print_cycle_stats(std::cout);
+    std::cout << "frames=" << decoder.get_frame_count() << " latency=" << decoder.get_latency_min() << "/"
+              << decoder.get_latency_max() << " interval=" << decoder.get_interval_min() << "/"
+              << decoder.get_interval_max() << " intervals=" << decoder.get_interval_count() << std::endl;
+    return 0;
+}
+catch (const std::exception& error)
+{
+    std::cerr << "[FAIL] " << error.what() << std::endl;
+    return 1;
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "pair_decoder"
+
+            def run(*command, **kwargs):
+                return subprocess.run(command, capture_output=True, text=True, timeout=300, **kwargs)
+
+            for arguments in (
+                ("init", str(project_dir)),
+                ("module", "add", str(project_dir), "--type", "verilator", "--name", "PairDecoder",
+                 "--in-type", "int8_t", "--in-width", "6", "--in-lanes", "16",
+                 "--out-type", "int32_t", "--out-width", "1", "--out-lanes", "8", "--yes"),
+            ):
+                result = run(sys.executable, str(CLI_PATH), *arguments)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            (project_dir / "src/hw/PairDecoder.sv").write_text(rtl)
+            (project_dir / "src/main.cpp").write_text(main)
+
+            result = run("cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
+                         "-DSTREAMPU_ROOT=" + os.environ["HULOTTE_TEST_STREAMPU_ROOT"])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run("cmake", "--build", str(project_dir / "build"), "--parallel", "2")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run(str(project_dir / "build/pair_decoder"), cwd=project_dir)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            # Two input beats per frame, accepted every cycle: the last output beat comes two
+            # cycles after the first input beat, and a new frame starts every two cycles.
+            self.assertIn("frames=4 latency=2/2 interval=2/2 intervals=3", result.stdout)
+            self.assertIn("PairDecoder: 4 frame(s), latency min/mean/max = 2/2/2 cycles", result.stdout)
 
     @unittest.skipUnless(
         os.environ.get("HULOTTE_TEST_AFF3CT_ROOT") and shutil.which("cmake"),

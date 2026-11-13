@@ -4,11 +4,22 @@
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <ostream>
 #include <set>
 #include <stdexcept>
+#include <type_traits>
+#include <vector>
+
+// Older Verilator releases (5.018 for example) reference the legacy sc_time_stamp() at link time
+// even when the time comes from the VerilatedContext, as here. This weak definition satisfies the
+// linker, is shared by all adapters and is never called.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak)) double sc_time_stamp() { return 0; }
+#endif
 
 namespace hulotte::detail {
 
@@ -38,20 +49,91 @@ std::mutex& verilator_initialization_mutex()
     return mutex;
 }
 
+// Verilator maps ports of up to 64 bits to integers and wider ports to VlWide word arrays.
+template <typename Port>
+void clear_port(Port& port)
+{
+    if constexpr (std::is_integral_v<Port>)
+        port = 0;
+    else
+        std::fill(port.data(), port.data() + sizeof(port) / sizeof(EData), EData(0));
+}
+
+template <typename Port>
+void write_bits(Port& port, unsigned offset, unsigned width, std::uint64_t value)
+{
+    if constexpr (std::is_integral_v<Port>)
+    {
+        const std::uint64_t mask = width >= 64 ? ~std::uint64_t(0) : (std::uint64_t(1) << width) - 1;
+        port = static_cast<Port>(port | ((value & mask) << offset));
+    }
+    else
+    {
+        for (unsigned bit = 0; bit < width; ++bit)
+            if ((value >> bit) & 1)
+                port.at((offset + bit) / 32) |= EData(1) << ((offset + bit) % 32);
+    }
+}
+
+template <typename Port>
+std::uint64_t read_bits(const Port& port, unsigned offset, unsigned width)
+{
+    std::uint64_t value = 0;
+    if constexpr (std::is_integral_v<Port>)
+    {
+        const std::uint64_t mask = width >= 64 ? ~std::uint64_t(0) : (std::uint64_t(1) << width) - 1;
+        value = (static_cast<std::uint64_t>(port) >> offset) & mask;
+    }
+    else
+    {
+        for (unsigned bit = 0; bit < width; ++bit)
+            if ((port.at((offset + bit) / 32) >> ((offset + bit) % 32)) & 1)
+                value |= std::uint64_t(1) << bit;
+    }
+    return value;
+}
+
+// Output elements are sign-extended from their bus width when sign_extend is set, zero-extended otherwise.
+constexpr bool sign_extend = {{ "true" if out_sign_extend else "false" }};
+
+template <typename T>
+T to_element(std::uint64_t value, unsigned width)
+{
+    if (sign_extend)
+    {
+        const std::uint64_t sign = std::uint64_t(1) << (width - 1);
+        return static_cast<T>(static_cast<std::int64_t>((value ^ sign) - sign));
+    }
+    return static_cast<T>(value);
+}
+
 }
 
 namespace hulotte::module {
 
+void {{ class_name }}::Cycle_range::add(std::uint64_t value)
+{
+    min = count == 0 ? value : std::min(min, value);
+    max = count == 0 ? value : std::max(max, value);
+    sum += value;
+    ++count;
+}
+
 {{ class_name }}::{{ class_name }}(int frame_size, const std::string& trace_path)
-: {{ class_name }}(frame_size, true, trace_path)
+: {{ class_name }}(frame_size, frame_size, true, trace_path)
 {
 }
 
-{{ class_name }}::{{ class_name }}(int frame_size, bool create_task, const std::string& trace_path)
-: spu::module::Stateful(), frame_size(frame_size)
+{{ class_name }}::{{ class_name }}(int n_in, int n_out, const std::string& trace_path)
+: {{ class_name }}(n_in, n_out, true, trace_path)
 {
-    if (frame_size <= 0)
-        throw std::invalid_argument("Frame size must be positive in {{ class_name }}");
+}
+
+{{ class_name }}::{{ class_name }}(int n_in, int n_out, bool create_task, const std::string& trace_path)
+: spu::module::Stateful(), n_in(n_in), n_out(n_out)
+{
+    if (n_in <= 0 || n_out <= 0)
+        throw std::invalid_argument("Frame sizes must be positive in {{ class_name }}");
     {
         std::lock_guard<std::mutex> lock(verilator_initialization_mutex());
         context = std::make_unique<VerilatedContext>();
@@ -76,11 +158,14 @@ namespace hulotte::module {
 
     this->set_name("{{ class_name }}");
     this->set_short_name("{{ class_name }}");
+    // All the frames of an execution reach the codelet together, so they can overlap in the model.
+    this->set_single_wave(true);
 
     model->clk = 0;
     model->reset = 1;
     model->in_valid = 0;
-    model->in_data = 0;
+    model->in_last = 0;
+    clear_port(model->in_data);
     model->out_ready = 0;
     evaluate();
     model->clk = 1;
@@ -92,14 +177,14 @@ namespace hulotte::module {
     if (create_task)
     {
         auto& task = this->create_task("simulate");
-        auto input_socket = this->create_socket_in<int>(task, "input", frame_size);
-        auto output_socket = this->create_socket_out<int>(task, "output", frame_size);
+        auto input_socket = this->create_socket_in<in_t>(task, "input", n_in);
+        auto output_socket = this->create_socket_out<out_t>(task, "output", n_out);
         this->create_codelet(task, [input_socket, output_socket](spu::module::Module& module, spu::runtime::Task& task, const size_t)
         {
             auto& adapter = static_cast<{{ class_name }}&>(module);
-            auto* input = static_cast<int*>(task[input_socket].get_dataptr());
-            auto* output = static_cast<int*>(task[output_socket].get_dataptr());
-            adapter.process_frame(input, output);
+            const auto* input = static_cast<const in_t*>(task[input_socket].get_dataptr());
+            auto* output = static_cast<out_t*>(task[output_socket].get_dataptr());
+            adapter.process_frames(input, output, adapter.get_n_frames_per_wave());
             return spu::runtime::status_t::SUCCESS;
         });
     }
@@ -115,8 +200,9 @@ namespace hulotte::module {
 
 {{ class_name }}* {{ class_name }}::clone() const
 {
-    std::unique_ptr<{{ class_name }}> copy(new {{ class_name }}(frame_size, false, ""));
+    std::unique_ptr<{{ class_name }}> copy(new {{ class_name }}(n_in, n_out, false, ""));
     copy->deep_copy(*this);
+    copy->stall_limit = stall_limit;
     return copy.release();
 }
 
@@ -128,49 +214,132 @@ void {{ class_name }}::evaluate()
     context->timeInc(5);
 }
 
-void {{ class_name }}::process_frame(const int* input, int* output)
+void {{ class_name }}::process_frames(const in_t* input, out_t* output, std::size_t n_frames)
 {
-    int input_count = 0;
-    int output_count = 0;
-    std::uint64_t cycles = 0;
-    const auto cycle_limit = static_cast<std::uint64_t>(frame_size) * 16 + 64;
+    const std::size_t beats_in = (static_cast<std::size_t>(n_in) + in_lanes - 1) / in_lanes;
+    const std::size_t beats_out = (static_cast<std::size_t>(n_out) + out_lanes - 1) / out_lanes;
+    std::vector<std::uint64_t> first_input_cycle(n_frames, 0);
+    std::size_t in_frame = 0, in_beat = 0;
+    std::size_t out_frame = 0, out_beat = 0;
+    std::uint64_t cycle = 0, idle = 0;
 
-    while (output_count < frame_size && cycles < cycle_limit)
+    while (out_frame < n_frames && idle < stall_limit)
     {
+        const bool sending = in_frame < n_frames;
         model->clk = 0;
-        model->in_valid = input_count < frame_size;
-        model->in_data = input_count < frame_size ? input[input_count] : 0;
+        model->in_valid = sending;
+        model->in_last = sending && in_beat == beats_in - 1;
+        clear_port(model->in_data);
+        if (sending)
+        {
+            const in_t* frame = input + in_frame * n_in;
+            for (unsigned lane = 0; lane < in_lanes; ++lane)
+            {
+                const std::size_t index = in_beat * in_lanes + lane;
+                if (index < static_cast<std::size_t>(n_in))
+                    write_bits(model->in_data, lane * in_width, in_width,
+                               static_cast<std::uint64_t>(static_cast<std::int64_t>(frame[index])));
+            }
+        }
         model->out_ready = 1;
         evaluate();
 
-        const bool input_accepted = model->in_valid && model->in_ready;
-        const bool output_available = model->out_valid && model->out_ready;
-        const int output_value = model->out_data;
+        const bool accepted = sending && model->in_ready;
+        const bool produced = model->out_valid;
+        if (accepted)
+        {
+            if (in_beat == 0)
+                first_input_cycle[in_frame] = cycle;
+            if (++in_beat == beats_in)
+            {
+                in_beat = 0;
+                ++in_frame;
+            }
+        }
+        if (produced)
+        {
+            if (out_frame >= in_frame + (in_beat > 0 ? 1 : 0))
+                throw std::runtime_error("{{ class_name }} produced output for frame "
+                                         + std::to_string(out_frame) + " before receiving its input");
+            out_t* frame = output + out_frame * n_out;
+            for (unsigned lane = 0; lane < out_lanes; ++lane)
+            {
+                const std::size_t index = out_beat * out_lanes + lane;
+                if (index < static_cast<std::size_t>(n_out))
+                    frame[index] = to_element<out_t>(read_bits(model->out_data, lane * out_width, out_width), out_width);
+            }
+            if (++out_beat == beats_out)
+            {
+                latency.add(cycle - first_input_cycle[out_frame]);
+                out_beat = 0;
+                ++out_frame;
+            }
+        }
 
         model->clk = 1;
         evaluate();
-
-        if (input_accepted)
-            ++input_count;
-        if (output_available)
-            output[output_count++] = output_value;
-        ++cycles;
+        idle = (accepted || produced) ? 0 : idle + 1;
+        ++cycle;
     }
 
     model->clk = 0;
     model->in_valid = 0;
+    model->in_last = 0;
     model->out_ready = 0;
     evaluate();
     if (trace)
         trace->flush();
 
-    if (output_count != frame_size)
+    if (out_frame != n_frames)
     {
-        throw std::runtime_error("Verilator frame timeout in {{ class_name }} after "
-                                 + std::to_string(cycles) + " cycles (received "
-                                 + std::to_string(output_count) + "/"
-                                 + std::to_string(frame_size) + " elements)");
+        throw std::runtime_error("Verilator frame timeout in {{ class_name }}: no transfer during "
+                                 + std::to_string(stall_limit) + " cycles (frame "
+                                 + std::to_string(out_frame + 1) + "/" + std::to_string(n_frames)
+                                 + ", received " + std::to_string(out_beat * out_lanes) + "/"
+                                 + std::to_string(n_out) + " elements)");
     }
+    for (std::size_t f = 1; f < n_frames; ++f)
+        interval.add(first_input_cycle[f] - first_input_cycle[f - 1]);
 }
+
+std::uint64_t {{ class_name }}::get_frame_count() const { return latency.count; }
+std::uint64_t {{ class_name }}::get_latency_min() const { return latency.min; }
+std::uint64_t {{ class_name }}::get_latency_max() const { return latency.max; }
+double {{ class_name }}::get_latency_mean() const
+{
+    return latency.count ? static_cast<double>(latency.sum) / latency.count : 0.0;
+}
+std::uint64_t {{ class_name }}::get_interval_count() const { return interval.count; }
+std::uint64_t {{ class_name }}::get_interval_min() const { return interval.min; }
+std::uint64_t {{ class_name }}::get_interval_max() const { return interval.max; }
+double {{ class_name }}::get_interval_mean() const
+{
+    return interval.count ? static_cast<double>(interval.sum) / interval.count : 0.0;
+}
+
+void {{ class_name }}::reset_cycle_stats()
+{
+    latency = Cycle_range();
+    interval = Cycle_range();
+}
+
+void {{ class_name }}::print_cycle_stats(std::ostream& stream) const
+{
+    stream << "{{ class_name }}: " << get_frame_count() << " frame(s), latency min/mean/max = "
+           << get_latency_min() << "/" << get_latency_mean() << "/" << get_latency_max() << " cycles";
+    if (interval.count)
+        stream << ", interval min/mean/max = " << get_interval_min() << "/" << get_interval_mean()
+               << "/" << get_interval_max() << " cycles";
+    stream << std::endl;
+}
+
+void {{ class_name }}::set_stall_limit(std::uint64_t cycles)
+{
+    if (cycles == 0)
+        throw std::invalid_argument("The stall limit of {{ class_name }} must be positive");
+    stall_limit = cycles;
+}
+
+std::uint64_t {{ class_name }}::get_stall_limit() const { return stall_limit; }
 
 }

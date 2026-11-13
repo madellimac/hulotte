@@ -4,6 +4,10 @@
 
 - Generated projects build in `Release` by default when no build type is given.
 - Generated projects fail at CMake configuration with an explicit message when `src/main.cpp` includes `aff3ct.hpp` without `AFF3CT_ROOT`.
+- Verilator modules describe their stream interface: element type, bit width and lanes per beat on each side (`--in-type`, `--in-width`, `--in-lanes`, `--out-type`, `--out-width`, `--out-lanes`, `--out-unsigned`), with different input and output frame sizes and buses wider than 64 bits. The generated block receives these values as SystemVerilog parameters and an `in_last` frame marker.
+- Verilator adapters stream all the frames of an execution back to back and record per-frame latency and initiation interval in cycles (`print_cycle_stats()` and accessors). The fixed per-frame cycle limit is replaced by a configurable stall limit.
+- Fixed: a Verilator adapter processed only the first frame when a task carried several frames.
+- Fixed: Verilator adapters failed to link with Verilator 5.018 (undefined `sc_time_stamp()`).
 
 ## 0.1.0
 

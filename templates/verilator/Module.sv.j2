@@ -1,19 +1,41 @@
-module {{ class_name }} (
-    input  logic        clk,
-    input  logic        reset,
-    input  logic [31:0] in_data,
-    input  logic        in_valid,
-    output logic        in_ready,
-    output logic [31:0] out_data,
-    output logic        out_valid,
-    input  logic        out_ready
+// Ready/Valid stream interface driven by the hulotte::module::{{ class_name }} adapter.
+// Lane i of a beat occupies bits [i*WIDTH +: WIDTH]; lane 0 is the least significant one.
+// in_last is high on the last input beat of each frame. The adapter sends frames back to back,
+// so a pipelined design can accept frame f+1 while it still outputs frame f.
+module {{ class_name }} #(
+    parameter int IN_WIDTH  = {{ in_width }},
+    parameter int IN_LANES  = {{ in_lanes }},
+    parameter int OUT_WIDTH = {{ out_width }},
+    parameter int OUT_LANES = {{ out_lanes }}
+) (
+    input  logic                           clk,
+    input  logic                           reset,
+    input  logic [IN_LANES*IN_WIDTH-1:0]   in_data,
+    input  logic                           in_valid,
+    input  logic                           in_last,
+    output logic                           in_ready,
+    output logic [OUT_LANES*OUT_WIDTH-1:0] out_data,
+    output logic                           out_valid,
+    input  logic                           out_ready
 );
 
     timeunit 1ns;
     timeprecision 1ns;
 
+{%- if passthrough %}
+
+    // Passthrough example: replace with the hardware behavior.
     assign in_ready = !reset && out_ready;
     assign out_data = in_data;
     assign out_valid = !reset && in_valid;
+{%- else %}
+
+    // Skeleton: the input and output frames differ in size or format, so there is no
+    // passthrough example. Implement the block here; until then the adapter reports a
+    // frame timeout because no output is produced.
+    assign in_ready = !reset;
+    assign out_data = '0;
+    assign out_valid = 1'b0;
+{%- endif %}
 
 endmodule

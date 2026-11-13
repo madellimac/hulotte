@@ -27,6 +27,29 @@ AFF3CT_MAX_BUILD_JOBS = 8
 CATALOG_LIBRARIES = ("streampu", "aff3ct")
 CATALOG_SOCKET_DIRECTIONS = ("in", "out", "fwd")
 
+# Integer element types allowed on generated module sockets, with their size in bits.
+# "int" keeps the historical default of the generated modules.
+ELEMENT_TYPES = {
+    "int": 32,
+    "int8_t": 8,
+    "uint8_t": 8,
+    "int16_t": 16,
+    "uint16_t": 16,
+    "int32_t": 32,
+    "uint32_t": 32,
+}
+# Widest Ready/Valid data bus (lanes x width) accepted for a Verilator block.
+MAX_BUS_WIDTH = 4096
+DEFAULT_STREAM_INTERFACE = {
+    "in_type": "int",
+    "out_type": "int",
+    "in_width": None,
+    "out_width": None,
+    "in_lanes": 1,
+    "out_lanes": 1,
+    "out_unsigned": False,
+}
+
 
 RESERVED_CMAKE_TARGETS = {
     "all",
@@ -157,11 +180,45 @@ def custom_module_files(class_name: str) -> dict[str, str]:
     }
 
 
-def verilator_module_files(class_name: str) -> dict[str, str]:
+def stream_interface(**options) -> dict:
+    """Return a complete, validated stream interface; omitted widths default to the type size."""
+    interface = dict(DEFAULT_STREAM_INTERFACE)
+    interface.update({key: value for key, value in options.items() if value is not None})
+    unknown = set(interface) - set(DEFAULT_STREAM_INTERFACE)
+    if unknown:
+        raise ValueError("Unknown stream interface option(s): " + ", ".join(sorted(unknown)))
+    for side in ("in", "out"):
+        element_type = interface[f"{side}_type"]
+        if element_type not in ELEMENT_TYPES:
+            raise ValueError(f"--{side}-type must be one of: {', '.join(ELEMENT_TYPES)}")
+        type_bits = ELEMENT_TYPES[element_type]
+        width = interface[f"{side}_width"]
+        if width is None:
+            width = interface[f"{side}_width"] = type_bits
+        if not isinstance(width, int) or not 1 <= width <= type_bits:
+            raise ValueError(f"--{side}-width must be between 1 and {type_bits} for {element_type}")
+        lanes = interface[f"{side}_lanes"]
+        if not isinstance(lanes, int) or lanes < 1:
+            raise ValueError(f"--{side}-lanes must be a positive integer")
+        if lanes * width > MAX_BUS_WIDTH:
+            raise ValueError(f"The {side}put bus ({lanes} x {width} bits) exceeds {MAX_BUS_WIDTH} bits")
+    interface["passthrough"] = all(
+        interface[f"in_{key}"] == interface[f"out_{key}"] for key in ("type", "width", "lanes")
+    )
+    # Output elements are sign-extended only for a signed type and more than one bit, so that
+    # hard-decision bits stored in a signed type read as 0 and 1.
+    interface["out_sign_extend"] = (
+        not interface["out_unsigned"] and not interface["out_type"].startswith("uint") and interface["out_width"] > 1
+    )
+    return interface
+
+
+def verilator_module_files(class_name: str, interface: Optional[dict] = None) -> dict[str, str]:
+    context = {"class_name": class_name, **(interface or stream_interface())}
     return {
-        f"src/hw/{class_name}.sv": render_template("verilator/Module.sv.j2", class_name=class_name),
-        f"src/custom/{class_name}.hpp": render_template("verilator/Module.hpp.j2", class_name=class_name),
-        f"src/custom/{class_name}.cpp": render_template("verilator/Module.cpp.j2", class_name=class_name),
+        f"src/hw/{class_name}.sv": render_template("verilator/Module.sv.j2", **context),
+        f"src/custom/{class_name}.hpp": render_template("verilator/Module.hpp.j2", **context),
+        f"src/custom/{class_name}.cpp": render_template("verilator/Module.cpp.j2", **context),
     }
 
 
@@ -174,12 +231,13 @@ def preview_custom_module(project_dir: Path, class_name: str) -> str:
     )
 
 
-def preview_verilator_module(project_dir: Path, class_name: str) -> str:
+def preview_verilator_module(project_dir: Path, class_name: str, interface: Optional[dict] = None) -> str:
     return render_template(
         "verilator/preview.txt.j2",
         project_dir=project_dir,
         class_name=class_name,
         instance_name=module_instance_name(class_name),
+        **(interface or stream_interface()),
     )
 
 
@@ -219,10 +277,10 @@ def add_custom_module(project_dir: Path, class_name: str) -> list[Path]:
     return write_project_files(project_dir, custom_module_files(class_name))
 
 
-def add_verilator_module(project_dir: Path, class_name: str) -> list[Path]:
+def add_verilator_module(project_dir: Path, class_name: str, interface: Optional[dict] = None) -> list[Path]:
     project_dir = validate_project_directory(project_dir)
     validate_module_name(class_name, "verilator")
-    return write_project_files(project_dir, verilator_module_files(class_name))
+    return write_project_files(project_dir, verilator_module_files(class_name, interface))
 
 
 def load_catalog(library: str) -> dict:
@@ -609,6 +667,16 @@ def main(argv=None) -> int:
     add_parser.add_argument("--type", dest="module_type", choices=["custom", "verilator", *CATALOG_LIBRARIES], help="module type; prompt when omitted")
     add_parser.add_argument("--name", help="C++ module class name, or catalog module id for streampu and aff3ct; prompt when omitted")
     add_parser.add_argument("--yes", action="store_true", help="create files without a confirmation prompt")
+    interface_group = add_parser.add_argument_group(
+        "stream interface", "element formats of a verilator module (default: one 32-bit int per beat on both sides)"
+    )
+    for side, label in (("in", "input"), ("out", "output")):
+        interface_group.add_argument(f"--{side}-type", choices=list(ELEMENT_TYPES), help=f"C++ type of an {label} element")
+        interface_group.add_argument(f"--{side}-width", type=int, metavar="BITS",
+                                     help=f"bits of an {label} element on the bus (default: size of the type)")
+        interface_group.add_argument(f"--{side}-lanes", type=int, metavar="N", help=f"{label} elements per beat (default: 1)")
+    interface_group.add_argument("--out-unsigned", action="store_const", const=True,
+                                 help="zero-extend output elements (by default a signed type wider than 1 bit is sign-extended)")
     deps_parser = subparsers.add_parser("deps", help="install or inspect native dependencies")
     deps_subparsers = deps_parser.add_subparsers(dest="deps_command", required=True)
     install_parser = deps_subparsers.add_parser("install", help="install StreamPU only or AFF3CT with its embedded StreamPU")
@@ -653,6 +721,12 @@ def main(argv=None) -> int:
             else:
                 module_type, prompted_name = args.module_type or "custom", args.name
             class_name = args.name if args.name is not None else prompted_name
+            interface_options = {key: getattr(args, key) for key in DEFAULT_STREAM_INTERFACE}
+            given_options = [key for key, value in interface_options.items() if value is not None]
+            if given_options and module_type != "verilator":
+                raise ValueError("Stream interface options (" + ", ".join(
+                    "--" + key.replace("_", "-") for key in given_options) + ") only apply to verilator modules")
+            interface = stream_interface(**interface_options)
             if module_type in CATALOG_LIBRARIES:
                 if class_name is None:
                     class_name = prompt_for_catalog_module(module_type)
@@ -663,11 +737,14 @@ def main(argv=None) -> int:
             if class_name is None:
                 class_name = input("Module class name: ").strip()
             validate_module_name(class_name, module_type)
-            files = custom_module_files(class_name) if module_type == "custom" else verilator_module_files(class_name)
+            if module_type == "custom":
+                files = custom_module_files(class_name)
+                preview_text = preview_custom_module(project_dir, class_name)
+            else:
+                files = verilator_module_files(class_name, interface)
+                preview_text = preview_verilator_module(project_dir, class_name, interface)
             check_output_paths(project_dir, files)
-
-            preview = preview_custom_module if module_type == "custom" else preview_verilator_module
-            print(preview(project_dir, class_name), end="")
+            print(preview_text, end="")
             if not args.yes and not confirm_module_creation():
                 print("Cancelled; no files were created.")
                 return 0

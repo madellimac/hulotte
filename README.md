@@ -109,6 +109,45 @@ When `src/main.cpp` includes `aff3ct.hpp` and `AFF3CT_ROOT` is not set, CMake st
 
 AFF3CT noise is passed through the `CP` socket of the channel and the demodulator: bind both to the same one-element `float` array holding the noise standard deviation (sigma). Projects created before this feature have no AFF3CT support in their `CMakeLists.txt`; the assistant says so rather than generating a snippet that cannot build.
 
+## Describe the hardware stream interface
+
+By default a Verilator block exchanges one 32-bit `int` per beat on both sides, with as many output as input elements. A hardware decoder usually differs: it reads N quantized LLRs, several per clock cycle, and returns K bits. Describe each side with these options:
+
+| Option | Meaning | Default |
+|---|---|---|
+| `--in-type`, `--out-type` | C++ element type of the socket: `int`, `int8_t`, `uint8_t`, `int16_t`, `uint16_t`, `int32_t`, `uint32_t` | `int` |
+| `--in-width`, `--out-width` | bits of one element on the bus | size of the type |
+| `--in-lanes`, `--out-lanes` | elements per beat | 1 |
+| `--out-unsigned` | zero-extend output elements | sign extension for a signed type wider than 1 bit |
+
+```sh
+# 16 LLRs of 6 bits per beat in, 8 decided bits per beat out.
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --type verilator --name Decoder \
+    --in-type int8_t --in-width 6 --in-lanes 16 --out-type int32_t --out-width 1 --out-lanes 8 --yes
+```
+
+The SystemVerilog block receives `IN_WIDTH`, `IN_LANES`, `OUT_WIDTH` and `OUT_LANES` as parameters; its buses are `IN_LANES*IN_WIDTH` and `OUT_LANES*OUT_WIDTH` bits wide, lane 0 in the least significant bits. Buses wider than 64 bits are supported. `in_last` is high on the last input beat of each frame; a frame whose length is not a multiple of the lanes is padded with zeros. When both sides have the same format, the block starts as a passthrough example; otherwise it is a skeleton to complete.
+
+The adapter takes both frame sizes, in elements:
+
+```cpp
+hulotte::module::Decoder decoder(N, K);  // task "simulate", sockets "input" (N x int8_t) and "output" (K x int32_t)
+```
+
+## Measure latency and throughput in cycles
+
+A StreamPU execution processes `n_frames` frames (`sequence.set_n_frames(F)` for a whole graph, or `module.set_n_frames(F)`). The Verilator adapter receives these F frames together and streams them back to back: the block can accept frame f+1 while it still outputs frame f, as it would in a real pipeline. The adapter records, for every frame:
+
+- the latency: cycles from the first input beat accepted to the last output beat (0 for a combinational single-beat block);
+- the interval: cycles between the first input beats of two consecutive frames of the same execution, that is the initiation interval in steady state.
+
+```cpp
+decoder.print_cycle_stats(std::cout);
+// Decoder: 1000 frame(s), latency min/mean/max = 70/70/70 cycles, interval min/mean/max = 8/8/8 cycles
+```
+
+`get_latency_min()`, `get_latency_mean()`, `get_latency_max()`, the matching `get_interval_*()` accessors and `get_frame_count()` give the same values; `reset_cycle_stats()` clears them. Outputs must come out in frame order. A frame fails with an explicit error when no input or output transfer happens during `get_stall_limit()` cycles (100000 by default, change it with `set_stall_limit()`), or when the block outputs a frame before receiving its first input beat.
+
 ## View hardware waveforms
 
 Newly generated Verilator adapters accept an optional VCD output path. Replace the existing instance declaration in `src/main.cpp` with:
@@ -173,7 +212,7 @@ The previous generator, its templates and shared components, example projects, a
 - Supported installation layout: a built standalone StreamPU source tree, not an arbitrary system-installed library. The tested StreamPU revision and toolchain are recorded in [INSTALLATION.md](INSTALLATION.md).
 - Module addition requires the current generated CMake setup. Older projects are not migrated automatically; update their source-discovery and Verilator configuration manually when necessary.
 - Each `src/hw/*.sv` file is treated as a top-level, with a module name matching its filename. Hierarchical RTL projects and parameterized designs need manual CMake integration.
-- A hardware adapter exchanges exactly `frame_size` 32-bit integers on both input and output. Different frame lengths and framing protocols need an adapted wrapper. A frame exceeding `frame_size * 16 + 64` cycles raises an explicit error.
+- A hardware adapter exchanges integer elements of up to 32 bits over a Ready/Valid stream with `in_last`; the output side is always ready (no back-pressure). Other framing protocols need an adapted wrapper.
 - Each hardware instance has an independent simulation context and time, reset once at construction and retained between frames. Cross-block, cycle-accurate interaction requires a shared RTL top-level rather than multiple frame-based adapters.
 - VCD output is optional and sequential; worker clones do not record traces. Parallel hardware execution and clone state restoration are not certified in this release.
 - Debug output is enabled in the default example. For throughput measurements, disable task debug output and VCD recording. Generated projects build in `Release` by default; pass `-DCMAKE_BUILD_TYPE=Debug` to debug.
