@@ -38,6 +38,10 @@ ELEMENT_TYPES = {
     "int32_t": 32,
     "uint32_t": 32,
 }
+# A C function may also exchange floating-point elements, which hardware buses do not carry.
+CFUNCTION_TYPES = {**ELEMENT_TYPES, "float": 32, "double": 64}
+# Stream interface options that also apply to cfunction modules.
+CFUNCTION_INTERFACE_OPTIONS = ("in_type", "out_type")
 # Widest Ready/Valid data bus (lanes x width) accepted for a Verilator block.
 MAX_BUS_WIDTH = 4096
 DEFAULT_STREAM_INTERFACE = {
@@ -222,6 +226,44 @@ def verilator_module_files(class_name: str, interface: Optional[dict] = None) ->
     }
 
 
+def cfunction_context(class_name: str, in_type: Optional[str] = None, out_type: Optional[str] = None) -> dict:
+    context = {"class_name": class_name, "prefix": module_instance_name(class_name),
+               "in_type": in_type or "int", "out_type": out_type or "int"}
+    for side in ("in", "out"):
+        if context[f"{side}_type"] not in CFUNCTION_TYPES:
+            raise ValueError(f"--{side}-type must be one of: {', '.join(CFUNCTION_TYPES)}")
+    return context
+
+
+def cfunction_module_files(class_name: str, in_type: Optional[str] = None, out_type: Optional[str] = None) -> dict[str, str]:
+    context = cfunction_context(class_name, in_type, out_type)
+    prefix = context["prefix"]
+    return {
+        f"src/custom/{prefix}_api.h": render_template("cfunction/api.h.j2", **context),
+        f"src/custom/{prefix}_impl.c": render_template("cfunction/impl.c.j2", **context),
+        f"src/custom/{class_name}.hpp": render_template("cfunction/Module.hpp.j2", **context),
+        f"src/custom/{class_name}.cpp": render_template("cfunction/Module.cpp.j2", **context),
+    }
+
+
+def preview_cfunction_module(project_dir: Path, class_name: str, in_type: Optional[str] = None,
+                             out_type: Optional[str] = None) -> str:
+    return render_template(
+        "cfunction/preview.txt.j2",
+        project_dir=project_dir,
+        instance_name=module_instance_name(class_name),
+        **cfunction_context(class_name, in_type, out_type),
+    )
+
+
+def check_project_c_support(project_dir: Path) -> None:
+    if 'src/custom/*.c"' not in (project_dir / "CMakeLists.txt").read_text(encoding="utf-8"):
+        raise ValueError(
+            f"{project_dir / 'CMakeLists.txt'} does not compile C sources. Create the project with a current "
+            "Hulotte, or enable the C language and add src/custom/*.c as in templates/project/CMakeLists.txt.j2."
+        )
+
+
 def preview_custom_module(project_dir: Path, class_name: str) -> str:
     return render_template(
         "custom/preview.txt.j2",
@@ -281,6 +323,14 @@ def add_verilator_module(project_dir: Path, class_name: str, interface: Optional
     project_dir = validate_project_directory(project_dir)
     validate_module_name(class_name, "verilator")
     return write_project_files(project_dir, verilator_module_files(class_name, interface))
+
+
+def add_cfunction_module(project_dir: Path, class_name: str, in_type: Optional[str] = None,
+                         out_type: Optional[str] = None) -> list[Path]:
+    project_dir = validate_project_directory(project_dir)
+    validate_module_name(class_name)
+    check_project_c_support(project_dir)
+    return write_project_files(project_dir, cfunction_module_files(class_name, in_type, out_type))
 
 
 def load_catalog(library: str) -> dict:
@@ -399,10 +449,12 @@ def prompt_for_module_details() -> tuple[str, str]:
     print("  2. StreamPU adapter around a Verilator model")
     print("  3. Existing StreamPU module from the catalog")
     print("  4. Existing AFF3CT module from the catalog")
-    module_types = {"": "custom", "1": "custom", "2": "verilator", "3": "streampu", "4": "aff3ct"}
+    print("  5. StreamPU adapter around a C function API")
+    module_types = {"": "custom", "1": "custom", "2": "verilator", "3": "streampu", "4": "aff3ct", "5": "cfunction"}
     selection = input("Select module type [1]: ").strip()
     if selection not in module_types:
-        raise ValueError("Select 1 for a custom module, 2 for a Verilator adapter, 3 for a StreamPU catalog module, or 4 for an AFF3CT catalog module")
+        raise ValueError("Select 1 for a custom module, 2 for a Verilator adapter, 3 for a StreamPU catalog module, "
+                         "4 for an AFF3CT catalog module, or 5 for a C function adapter")
     module_type = module_types[selection]
     if module_type in CATALOG_LIBRARIES:
         return module_type, prompt_for_catalog_module(module_type)
@@ -664,14 +716,16 @@ def main(argv=None) -> int:
     list_parser.add_argument("--library", choices=list(CATALOG_LIBRARIES), help="only list this library")
     add_parser = module_subparsers.add_parser("add", help="create a module, or show how to use a catalog module")
     add_parser.add_argument("project_dir", type=Path, help="existing Hulotte project directory")
-    add_parser.add_argument("--type", dest="module_type", choices=["custom", "verilator", *CATALOG_LIBRARIES], help="module type; prompt when omitted")
+    add_parser.add_argument("--type", dest="module_type", choices=["custom", "verilator", "cfunction", *CATALOG_LIBRARIES], help="module type; prompt when omitted")
     add_parser.add_argument("--name", help="C++ module class name, or catalog module id for streampu and aff3ct; prompt when omitted")
     add_parser.add_argument("--yes", action="store_true", help="create files without a confirmation prompt")
     interface_group = add_parser.add_argument_group(
-        "stream interface", "element formats of a verilator module (default: one 32-bit int per beat on both sides)"
+        "stream interface",
+        "element formats of a verilator module (default: one 32-bit int per beat on both sides); "
+        "a cfunction module only takes --in-type and --out-type, which also accept float and double",
     )
     for side, label in (("in", "input"), ("out", "output")):
-        interface_group.add_argument(f"--{side}-type", choices=list(ELEMENT_TYPES), help=f"C++ type of an {label} element")
+        interface_group.add_argument(f"--{side}-type", choices=list(CFUNCTION_TYPES), help=f"C++ type of an {label} element")
         interface_group.add_argument(f"--{side}-width", type=int, metavar="BITS",
                                      help=f"bits of an {label} element on the bus (default: size of the type)")
         interface_group.add_argument(f"--{side}-lanes", type=int, metavar="N", help=f"{label} elements per beat (default: 1)")
@@ -723,10 +777,15 @@ def main(argv=None) -> int:
             class_name = args.name if args.name is not None else prompted_name
             interface_options = {key: getattr(args, key) for key in DEFAULT_STREAM_INTERFACE}
             given_options = [key for key, value in interface_options.items() if value is not None]
-            if given_options and module_type != "verilator":
+            allowed_options = {"verilator": DEFAULT_STREAM_INTERFACE, "cfunction": CFUNCTION_INTERFACE_OPTIONS}
+            rejected_options = [key for key in given_options if key not in allowed_options.get(module_type, ())]
+            if rejected_options:
+                applies_to = ("verilator modules" if any(key not in CFUNCTION_INTERFACE_OPTIONS for key in rejected_options)
+                              else "verilator and cfunction modules")
                 raise ValueError("Stream interface options (" + ", ".join(
-                    "--" + key.replace("_", "-") for key in given_options) + ") only apply to verilator modules")
-            interface = stream_interface(**interface_options)
+                    "--" + key.replace("_", "-") for key in rejected_options) + f") only apply to {applies_to}")
+            if module_type == "verilator":
+                interface = stream_interface(**interface_options)
             if module_type in CATALOG_LIBRARIES:
                 if class_name is None:
                     class_name = prompt_for_catalog_module(module_type)
@@ -740,6 +799,10 @@ def main(argv=None) -> int:
             if module_type == "custom":
                 files = custom_module_files(class_name)
                 preview_text = preview_custom_module(project_dir, class_name)
+            elif module_type == "cfunction":
+                check_project_c_support(project_dir)
+                files = cfunction_module_files(class_name, args.in_type, args.out_type)
+                preview_text = preview_cfunction_module(project_dir, class_name, args.in_type, args.out_type)
             else:
                 files = verilator_module_files(class_name, interface)
                 preview_text = preview_verilator_module(project_dir, class_name, interface)

@@ -13,7 +13,8 @@ Version **0.1.0** is an initial experimental source release. See [CHANGELOG.md](
 - The generated CMake project locates StreamPU through the `STREAMPU_ROOT` environment variable.
 - `hulotte deps install` installs the pinned StreamPU revision under `dependencies/`, or AFF3CT with its embedded StreamPU; it asks which one in a terminal. `hulotte doctor` checks build tools and dependency status.
 - `hulotte.py module add <project>` guides you through creating a custom C++ StreamPU module and prints the code to integrate manually.
-- The same assistant can generate a StreamPU adapter and Ready/Valid SystemVerilog starter block for Verilator.
+- The same assistant can generate a StreamPU adapter and Ready/Valid SystemVerilog starter block for Verilator, with a configurable stream interface and cycle measurements.
+- It can also wrap C code behind a fixed three-function API (`--type cfunction`).
 - CMake automatically discovers added module sources under `src/custom/` on the next build.
 - CMake enables Verilator only when a block exists under `src/hw/`.
 
@@ -109,6 +110,26 @@ When `src/main.cpp` includes `aff3ct.hpp` and `AFF3CT_ROOT` is not set, CMake st
 
 AFF3CT noise is passed through the `CP` socket of the channel and the demodulator: bind both to the same one-element `float` array holding the noise standard deviation (sigma). Projects created before this feature have no AFF3CT support in their `CMakeLists.txt`; the assistant says so rather than generating a snippet that cannot build.
 
+## Wrap C code behind a fixed API
+
+A `cfunction` module calls C code through three functions, so that the code needs no StreamPU or C++ knowledge. This suits code supplied by third parties, such as the participants of an implementation contest:
+
+```sh
+# Float LLRs in, int32_t bits out.
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --type cfunction --name SoftDecoder \
+    --in-type float --out-type int32_t --yes
+```
+
+The command creates `src/custom/soft_decoder_api.h`, which declares the API, an example implementation `src/custom/soft_decoder_impl.c` that copies its input, and the StreamPU adapter `SoftDecoder` (task `process`, sockets `in` and `out`):
+
+```c
+soft_decoder_state* soft_decoder_create(int n_in, int n_out);  /* NULL on failure */
+int soft_decoder_process(soft_decoder_state* state, const float* in, int32_t* out);  /* 0 on success */
+void soft_decoder_destroy(soft_decoder_state* state);
+```
+
+Replace the example with the real implementation, in C or in a `.cpp` file that includes the header. Each instance and each StreamPU clone owns its own state, so an implementation that keeps its working memory in the state is thread-safe. A non-zero return code from `process` stops the simulation with an error naming the code. The element types are those of the Verilator modules, plus `float` and `double`. Generated projects compile `src/custom/*.c`; older projects need the C language and this source pattern in their `CMakeLists.txt`.
+
 ## Describe the hardware stream interface
 
 By default a Verilator block exchanges one 32-bit `int` per beat on both sides, with as many output as input elements. A hardware decoder usually differs: it reads N quantized LLRs, several per clock cycle, and returns K bits. Describe each side with these options:
@@ -198,6 +219,7 @@ HULOTTE_TEST_STREAMPU_ROOT="$PWD/dependencies/streampu" python3 -m unittest disc
 - `templates/project/`: the default C++/CMake project and its README.
 - `templates/custom/`: custom C++ modules and their integration preview.
 - `templates/verilator/`: SystemVerilog blocks, StreamPU adapters, and their integration preview.
+- `templates/cfunction/`: C API headers, example implementations, StreamPU adapters, and their integration preview.
 
 Templates use explicit rendering contexts and `StrictUndefined`: a missing variable causes an error rather than silently generating incomplete code. Templates are located relative to `hulotte.py`, not the current working directory. Generated projects do not need Python or Jinja2 to build and run.
 

@@ -1,0 +1,33 @@
+#pragma once
+
+#include <streampu.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+#include "{{ prefix }}_api.h"
+
+namespace hulotte::module {
+
+// StreamPU adapter around the C API of {{ prefix }}_api.h.
+// Task "process": socket "in" holds n_in elements of in_t per frame, socket "out" n_out
+// elements of out_t. Each instance and each clone owns its own {{ prefix }}_state.
+class {{ class_name }} : public spu::module::Stateful
+{
+public:
+    using in_t = {{ in_type }};
+    using out_t = {{ out_type }};
+
+    {{ class_name }}(int n_in, int n_out);
+    {{ class_name }}* clone() const override;
+
+private:
+    {{ class_name }}(int n_in, int n_out, bool create_task);
+    void process_frames(const in_t* input, out_t* output, std::size_t n_frames);
+
+    int n_in;
+    int n_out;
+    std::unique_ptr<{{ prefix }}_state, void (*)({{ prefix }}_state*)> state;
+};
+
+}

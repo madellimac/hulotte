@@ -1,0 +1,28 @@
+Files to create in {{ project_dir }}:
+    src/custom/{{ prefix }}_api.h
+    src/custom/{{ prefix }}_impl.c
+    src/custom/{{ class_name }}.hpp
+    src/custom/{{ class_name }}.cpp
+
+C API to implement (src/custom/{{ prefix }}_api.h):
+    {{ prefix }}_state* {{ prefix }}_create(int n_in, int n_out);
+    int {{ prefix }}_process({{ prefix }}_state* state, const {{ in_type }}* in, {{ out_type }}* out);
+    void {{ prefix }}_destroy({{ prefix }}_state* state);
+
+Add this include to src/main.cpp:
+    #include "custom/{{ class_name }}.hpp"
+
+Create the StreamPU adapter in main():
+    hulotte::module::{{ class_name }} {{ instance_name }}(n_in, n_out);
+
+Tasks and sockets:
+    process
+      in   in   {{ in_type }}[n_in]
+      out  out  {{ out_type }}[n_out]
+
+Example socket bindings, between a producer and a consumer of the graph:
+    producer["task::output"] = {{ instance_name }}["process::in"];
+    {{ instance_name }}["process::out"] = consumer["task::input"];
+
+    {{ prefix }}_impl.c is an example that copies its input; replace it with your implementation.
+    Enable task statistics (task->set_stats(true)) to measure its software throughput.

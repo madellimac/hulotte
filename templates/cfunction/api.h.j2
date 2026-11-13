@@ -1,0 +1,35 @@
+#ifndef HULOTTE_{{ prefix | upper }}_API_H
+#define HULOTTE_{{ prefix | upper }}_API_H
+
+/*
+ * C API called by the hulotte::module::{{ class_name }} StreamPU adapter.
+ *
+ * Every StreamPU instance, including the clones made for parallel execution, creates its own
+ * state with {{ prefix }}_create() and destroys it with {{ prefix }}_destroy(). An implementation that
+ * keeps all its working memory in this state is therefore thread-safe without locks.
+ */
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Opaque state of one instance, defined by the implementation. */
+typedef struct {{ prefix }}_state {{ prefix }}_state;
+
+/* Allocates a state for frames of n_in input and n_out output elements; returns NULL on failure. */
+{{ prefix }}_state* {{ prefix }}_create(int n_in, int n_out);
+
+/* Processes one frame: reads n_in elements from in and writes n_out elements to out.
+ * Returns 0 on success, any other value to stop the simulation with an error. */
+int {{ prefix }}_process({{ prefix }}_state* state, const {{ in_type }}* in, {{ out_type }}* out);
+
+/* Releases a state returned by {{ prefix }}_create(); NULL is ignored. */
+void {{ prefix }}_destroy({{ prefix }}_state* state);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

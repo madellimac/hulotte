@@ -1,0 +1,60 @@
+#include "{{ class_name }}.hpp"
+
+#include <stdexcept>
+#include <string>
+
+namespace hulotte::module {
+
+{{ class_name }}::{{ class_name }}(int n_in, int n_out)
+: {{ class_name }}(n_in, n_out, true)
+{
+}
+
+{{ class_name }}::{{ class_name }}(int n_in, int n_out, bool create_task)
+: spu::module::Stateful(), n_in(n_in), n_out(n_out), state(nullptr, &{{ prefix }}_destroy)
+{
+    if (n_in <= 0 || n_out <= 0)
+        throw std::invalid_argument("Frame sizes must be positive in {{ class_name }}");
+    state.reset({{ prefix }}_create(n_in, n_out));
+    if (!state)
+        throw std::runtime_error("{{ prefix }}_create() returned NULL in {{ class_name }}");
+
+    this->set_name("{{ class_name }}");
+    this->set_short_name("{{ class_name }}");
+
+    if (create_task)
+    {
+        auto& task = this->create_task("process");
+        auto input_socket = this->create_socket_in<in_t>(task, "in", n_in);
+        auto output_socket = this->create_socket_out<out_t>(task, "out", n_out);
+        this->create_codelet(task, [input_socket, output_socket](spu::module::Module& module, spu::runtime::Task& task, const size_t)
+        {
+            auto& adapter = static_cast<{{ class_name }}&>(module);
+            adapter.process_frames(static_cast<const in_t*>(task[input_socket].get_dataptr()),
+                                   static_cast<out_t*>(task[output_socket].get_dataptr()),
+                                   adapter.get_n_frames_per_wave());
+            return spu::runtime::status_t::SUCCESS;
+        });
+    }
+}
+
+{{ class_name }}* {{ class_name }}::clone() const
+{
+    // The clone gets a fresh state from {{ prefix }}_create(), never a shared one.
+    std::unique_ptr<{{ class_name }}> copy(new {{ class_name }}(n_in, n_out, false));
+    copy->deep_copy(*this);
+    return copy.release();
+}
+
+void {{ class_name }}::process_frames(const in_t* input, out_t* output, std::size_t n_frames)
+{
+    for (std::size_t f = 0; f < n_frames; ++f)
+    {
+        const int status = {{ prefix }}_process(state.get(), input + f * n_in, output + f * n_out);
+        if (status != 0)
+            throw std::runtime_error("{{ prefix }}_process() failed with code " + std::to_string(status)
+                                     + " in {{ class_name }}");
+    }
+}
+
+}

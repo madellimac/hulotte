@@ -425,7 +425,7 @@ class NewProjectCliTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             cmake = (project_dir / "CMakeLists.txt").read_text()
-            self.assertIn("project(external_project LANGUAGES CXX)", cmake)
+            self.assertIn("project(external_project LANGUAGES C CXX)", cmake)
             self.assertIn("${STREAMPU_ROOT}", cmake)
             self.assertNotIn("{{", cmake)
 
@@ -441,7 +441,7 @@ class NewProjectCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             cmake = (project_dir / "CMakeLists.txt").read_text()
-            self.assertIn("project(my_pipeline LANGUAGES CXX)", cmake)
+            self.assertIn("project(my_pipeline LANGUAGES C CXX)", cmake)
             readme = (project_dir / "README.md").read_text()
             self.assertIn("<h2>Build and run</h2>", readme)
             self.assertIn("cmake -S . -B build&#10;", readme)
@@ -534,7 +534,7 @@ class NewProjectCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             cmake = (project_dir / "CMakeLists.txt").read_text()
-            self.assertIn("project(test LANGUAGES CXX)", cmake)
+            self.assertIn("project(test LANGUAGES C CXX)", cmake)
             self.assertIn("add_executable(hulotte_test", cmake)
             self.assertIn("./build/hulotte_test", (project_dir / "README.md").read_text())
 
@@ -638,7 +638,9 @@ class NewProjectCliTests(unittest.TestCase):
                 (["--type", "verilator", "--in-type", "int8_t", "--in-width", "9"], "--in-width must be between 1 and 8"),
                 (["--type", "verilator", "--out-lanes", "0"], "--out-lanes must be a positive integer"),
                 (["--type", "verilator", "--in-lanes", "200"], "exceeds 4096 bits"),
-                (["--type", "custom", "--in-type", "int8_t"], "only apply to verilator modules"),
+                (["--type", "custom", "--in-type", "int8_t"], "only apply to verilator and cfunction modules"),
+                (["--type", "cfunction", "--in-lanes", "2"], "only apply to verilator modules"),
+                (["--type", "verilator", "--in-type", "float"], "--in-type must be one of: int, int8_t"),
             )
             for options, message in cases:
                 result = subprocess.run(
@@ -650,10 +652,55 @@ class NewProjectCliTests(unittest.TestCase):
                 self.assertFalse((project_dir / "src/custom/Block.hpp").exists())
             result = subprocess.run(
                 [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--name", "Block",
-                 "--type", "verilator", "--in-type", "float"],
+                 "--type", "verilator", "--in-type", "complex"],
                 capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 2)
+
+    def test_cfunction_module_generates_c_api_example_and_adapter(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "cfunction-project"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           check=True, capture_output=True, text=True)
+            main_before = (project_dir / "src/main.cpp").read_text()
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir)],
+                input="5\nSoftDecoder\nY\n", capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            api = (project_dir / "src/custom/soft_decoder_api.h").read_text()
+            self.assertIn("soft_decoder_state* soft_decoder_create(int n_in, int n_out);", api)
+            self.assertIn("int soft_decoder_process(soft_decoder_state* state, const int* in, int* out);", api)
+            self.assertIn('extern "C"', api)
+            self.assertIn("free(state);", (project_dir / "src/custom/soft_decoder_impl.c").read_text())
+            self.assertIn("std::unique_ptr<soft_decoder_state, void (*)(soft_decoder_state*)> state;",
+                          (project_dir / "src/custom/SoftDecoder.hpp").read_text())
+            self.assertIn("hulotte::module::SoftDecoder soft_decoder(n_in, n_out);", result.stdout)
+            self.assertEqual((project_dir / "src/main.cpp").read_text(), main_before)
+
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "cfunction",
+                 "--name", "FloatDecoder", "--in-type", "float", "--out-type", "int32_t", "--yes"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("const float* in, int32_t* out", (project_dir / "src/custom/float_decoder_api.h").read_text())
+
+    def test_cfunction_module_refuses_projects_without_c_support(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "old-project"
+            subprocess.run([sys.executable, str(CLI_PATH), "init", str(project_dir)],
+                           check=True, capture_output=True, text=True)
+            cmake_path = project_dir / "CMakeLists.txt"
+            cmake_path.write_text(cmake_path.read_text().replace('    "${CMAKE_CURRENT_SOURCE_DIR}/src/custom/*.c"\n', ""))
+            result = subprocess.run(
+                [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "cfunction",
+                 "--name", "Legacy", "--yes"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("does not compile C sources", result.stderr)
+            self.assertFalse((project_dir / "src/custom/Legacy.hpp").exists())
 
 
     @unittest.skipUnless(
@@ -905,6 +952,109 @@ catch (const std::exception& error)
             # cycles after the first input beat, and a new frame starts every two cycles.
             self.assertIn("frames=4 latency=2/2 interval=2/2 intervals=3", result.stdout)
             self.assertIn("PairDecoder: 4 frame(s), latency min/mean/max = 2/2/2 cycles", result.stdout)
+
+    @unittest.skipUnless(
+        os.environ.get("HULOTTE_TEST_STREAMPU_ROOT") and shutil.which("cmake"),
+        "Set HULOTTE_TEST_STREAMPU_ROOT and install CMake to run the cfunction integration test",
+    )
+    def test_cfunction_module_runs_c_code_per_frame_and_reports_errors(self):
+        implementation = r'''#include "hard_decider_api.h"
+
+#include <stdlib.h>
+
+struct hard_decider_state { int n; };
+
+hard_decider_state* hard_decider_create(int n_in, int n_out)
+{
+    if (n_in != n_out)
+        return NULL;
+    hard_decider_state* state = (hard_decider_state*)malloc(sizeof(*state));
+    if (state != NULL)
+        state->n = n_in;
+    return state;
+}
+
+int hard_decider_process(hard_decider_state* state, const float* in, int32_t* out)
+{
+    if (in[0] == 999.0f)
+        return 7;
+    for (int i = 0; i < state->n; ++i)
+        out[i] = in[i] < 0.0f ? 1 : 0;
+    return 0;
+}
+
+void hard_decider_destroy(hard_decider_state* state) { free(state); }
+'''
+        main = r'''#include <streampu.hpp>
+
+#include "custom/HardDecider.hpp"
+
+#include <iostream>
+#include <memory>
+#include <vector>
+
+int run(hulotte::module::HardDecider& decider, std::vector<float>& llrs, int n, int n_frames)
+{
+    decider["process::in"] = llrs.data();
+    decider("process").exec();
+    const auto* bits = static_cast<const int32_t*>(decider["process::out"].get_dataptr());
+    for (int i = 0; i < n * n_frames; ++i)
+        if (bits[i] != (llrs[i] < 0.0f ? 1 : 0))
+            return 1;
+    return 0;
+}
+
+int main() try
+{
+    constexpr int n = 8, n_frames = 3;
+    hulotte::module::HardDecider decider(n, n);
+    decider.set_n_frames(n_frames);
+    std::vector<float> llrs(n * n_frames);
+    for (int i = 0; i < n * n_frames; ++i)
+        llrs[i] = (i % 3 == 0 ? -1.0f : 1.0f) * (0.5f + i);
+    if (run(decider, llrs, n, n_frames) != 0)
+        return 1;
+    // A clone creates and later destroys its own state (only a Sequence allocates its outputs).
+    std::unique_ptr<hulotte::module::HardDecider> copy(decider.clone());
+    copy.reset();
+    std::cout << "[PASS] frames and clone" << std::endl;
+
+    llrs[n] = 999.0f;
+    run(decider, llrs, n, n_frames);
+    return 1;
+}
+catch (const std::exception& error)
+{
+    std::cerr << "[FAIL] " << error.what() << std::endl;
+    return 2;
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "c_decider"
+
+            def run(*command, **kwargs):
+                return subprocess.run(command, capture_output=True, text=True, timeout=300, **kwargs)
+
+            for arguments in (
+                ("init", str(project_dir)),
+                ("module", "add", str(project_dir), "--type", "cfunction", "--name", "HardDecider",
+                 "--in-type", "float", "--out-type", "int32_t", "--yes"),
+            ):
+                result = run(sys.executable, str(CLI_PATH), *arguments)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            (project_dir / "src/custom/hard_decider_impl.c").write_text(implementation)
+            (project_dir / "src/main.cpp").write_text(main)
+
+            result = run("cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
+                         "-DSTREAMPU_ROOT=" + os.environ["HULOTTE_TEST_STREAMPU_ROOT"],
+                         "-DCMAKE_DISABLE_FIND_PACKAGE_verilator=TRUE")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run("cmake", "--build", str(project_dir / "build"), "--parallel", "2")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run(str(project_dir / "build/c_decider"))
+            self.assertIn("[PASS] frames and clone", result.stdout, result.stderr)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("hard_decider_process() failed with code 7 in HardDecider", result.stderr)
 
     @unittest.skipUnless(
         os.environ.get("HULOTTE_TEST_AFF3CT_ROOT") and shutil.which("cmake"),

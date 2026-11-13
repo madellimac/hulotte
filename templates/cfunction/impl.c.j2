@@ -1,0 +1,38 @@
+/*
+ * Example implementation of the {{ prefix }} C API: copies the first input elements to the output
+ * and fills the rest with zeros. Replace it with your own code; keep the signatures of
+ * {{ prefix }}_api.h. A C++ implementation is possible in a .cpp file under src/custom/ that
+ * includes {{ prefix }}_api.h, which declares the functions extern "C".
+ */
+
+#include "{{ prefix }}_api.h"
+
+#include <stdlib.h>
+
+struct {{ prefix }}_state
+{
+    int n_in;
+    int n_out;
+};
+
+{{ prefix }}_state* {{ prefix }}_create(int n_in, int n_out)
+{
+    {{ prefix }}_state* state = ({{ prefix }}_state*)malloc(sizeof(*state));
+    if (state == NULL)
+        return NULL;
+    state->n_in = n_in;
+    state->n_out = n_out;
+    return state;
+}
+
+int {{ prefix }}_process({{ prefix }}_state* state, const {{ in_type }}* in, {{ out_type }}* out)
+{
+    for (int i = 0; i < state->n_out; ++i)
+        out[i] = i < state->n_in ? ({{ out_type }})in[i] : ({{ out_type }})0;
+    return 0;
+}
+
+void {{ prefix }}_destroy({{ prefix }}_state* state)
+{
+    free(state);
+}
