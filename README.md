@@ -95,7 +95,7 @@ python3 hulotte.py module list
 python3 hulotte.py module add "$HOME/projects/my_pipeline" --type aff3ct --name Channel_AWGN_LLR
 ```
 
-The command prints the include, the instantiation, and the tasks and sockets to bind (`module["task::socket"]`). It writes no file and does not modify `main.cpp`. The initial catalog covers `Source_random`, `Relayer` and `Sink_NO` (StreamPU), and `Encoder_repetition_sys`, `Decoder_repetition_std`, `Modem_BPSK`, `Channel_AWGN_LLR` and `Quantizer_pow2_fast` (AFF3CT). The catalog entries are JSON files under `catalog/`.
+The command prints the include, the instantiation, and the tasks and sockets to bind (`module["task::socket"]`). It writes no file and does not modify `main.cpp`. The catalog covers `Source_random`, `Relayer` and `Sink_NO` (StreamPU), and from AFF3CT: `Source_random_fast`, `CRC_polynomial`, the repetition codec (`Encoder_repetition_sys`, `Decoder_repetition_std`), the polar codec (`Encoder_polar`, `Decoder_polar_SC_naive`, `Decoder_polar_SCL_naive`, `Decoder_polar_SCL_naive_CA`), `Modem_BPSK`, `Channel_AWGN_LLR`, the quantizers `Quantizer_pow2_fast` and `Quantizer_pow2` (with saturation, for hardware LLR formats), and the error counter `Monitor_BFER`. The catalog entries of the polar codec explain how to build the frozen bits. The catalog entries are JSON files under `catalog/`.
 
 To build a project with AFF3CT modules, install AFF3CT and configure with its root instead of the StreamPU one:
 
@@ -225,7 +225,7 @@ Templates use explicit rendering contexts and `StrictUndefined`: a missing varia
 
 ## Not yet available
 
-The new workflow does not yet provide AFF3CT codecs beyond the initial catalog (one repetition codec, BPSK modem, AWGN channel and a quantizer), or UART/Ethernet transports. StreamPU and AFF3CT installation is available through `hulotte deps install`. Verilator-backed modules are available when Verilator 5 or later is installed.
+The new workflow does not yet provide AFF3CT codecs beyond the catalog (repetition and polar codecs, CRC, BPSK modem, AWGN channel, quantizers and error counter), or UART/Ethernet transports to an FPGA. StreamPU and AFF3CT installation is available through `hulotte deps install`. Verilator-backed modules are available when Verilator 5 or later is installed.
 
 The previous generator, its templates and shared components, example projects, and prototypes are archived under `legacy/` for reference. They are not part of the new workflow.
 

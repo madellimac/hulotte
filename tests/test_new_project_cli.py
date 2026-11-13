@@ -1139,5 +1139,107 @@ catch (const std::exception& error)
             self.assertIn("mismatched element(s) over 100 frame(s)", result.stderr)
 
 
+    @unittest.skipUnless(
+        os.environ.get("HULOTTE_TEST_AFF3CT_ROOT") and shutil.which("cmake"),
+        "Set HULOTTE_TEST_AFF3CT_ROOT and install CMake to run the AFF3CT polar integration test",
+    )
+    def test_aff3ct_catalog_polar_ca_scl_chain_counts_errors(self):
+        # Every module below is instantiated as the catalog describes it.
+        chain = r'''#include <aff3ct.hpp>
+
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+
+int main(int argc, char** argv) try
+{
+    constexpr int K_info = 48, crc_size = 16, K = K_info + crc_size, N = 128, L = 4;
+    std::vector<float> sigma(1, std::strtof(argv[1], nullptr));
+    const int n_frames = std::atoi(argv[2]);
+
+    aff3ct::tools::Frozenbits_generator_GA_Arikan frozen_bits_generator(K, N);
+    aff3ct::tools::Sigma<> design_sigma(0.5f);
+    frozen_bits_generator.set_noise(design_sigma);
+    std::vector<bool> frozen_bits(N);
+    frozen_bits_generator.generate(frozen_bits);
+
+    aff3ct::module::Source_random_fast<int32_t> source(K_info);
+    aff3ct::module::CRC_polynomial<int32_t> crc_polynomial(K_info, "16-CCITT", 0);
+    aff3ct::module::Encoder_polar<int32_t> encoder(K, N, frozen_bits);
+    aff3ct::module::Modem_BPSK<int32_t, float, float> modem(N);
+    aff3ct::module::Channel_AWGN_LLR<float> channel(N);
+    aff3ct::module::Quantizer_pow2<float, int8_t> quantizer(N, 2, 6);
+    aff3ct::module::Decoder_polar_SCL_naive_CA<int32_t, float> decoder(K, N, L, frozen_bits, crc_polynomial);
+    aff3ct::module::Monitor_BFER<int32_t> monitor(K_info, 1000);
+
+    source["generate::out_data"] = crc_polynomial["build::U_K1"];
+    crc_polynomial["build::U_K2"] = encoder["encode::U_K"];
+    encoder["encode::X_N"] = modem["modulate::X_N1"];
+    modem["modulate::X_N2"] = channel["add_noise::X_N"];
+    channel["add_noise::Y_N"] = modem["demodulate::Y_N1"];
+    modem["demodulate::Y_N2"] = quantizer["process::Y_N1"];
+    modem["demodulate::Y_N2"] = decoder["decode_siho::Y_N"];
+    decoder["decode_siho::V_K"] = crc_polynomial["extract::V_K1"];
+    crc_polynomial["extract::V_K2"] = monitor["check_errors::V"];
+    source["generate::out_data"] = monitor["check_errors::U"];
+    channel["add_noise::CP"] = sigma.data();
+    modem["demodulate::CP"] = sigma.data();
+
+    std::vector<spu::runtime::Task*> first_tasks;
+    first_tasks.push_back(&source("generate"));
+    spu::runtime::Sequence sequence(first_tasks);
+    int max_quantized = 0;
+    for (int frame = 0; frame < n_frames; ++frame)
+    {
+        sequence.exec_seq();
+        const auto* quantized = static_cast<const int8_t*>(quantizer["process::Y_N2"].get_dataptr());
+        for (int i = 0; i < N; ++i)
+            max_quantized = std::max(max_quantized, std::abs(static_cast<int>(quantized[i])));
+    }
+    std::cout << "frames=" << monitor.get_n_analyzed_fra() << " fe=" << monitor.get_n_fe()
+              << " max_quantized=" << max_quantized << std::endl;
+    return 0;
+}
+catch (const std::exception& error)
+{
+    std::cerr << "[FAIL] " << error.what() << std::endl;
+    return 1;
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "polar_chain"
+
+            def run(*command):
+                return subprocess.run(command, capture_output=True, text=True, timeout=900)
+
+            result = run(sys.executable, str(CLI_PATH), "init", str(project_dir))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for module_id in ("Source_random_fast", "CRC_polynomial", "Encoder_polar", "Quantizer_pow2",
+                              "Decoder_polar_SCL_naive_CA", "Monitor_BFER"):
+                result = run(sys.executable, str(CLI_PATH), "module", "add", str(project_dir),
+                             "--type", "aff3ct", "--name", module_id)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            (project_dir / "src/main.cpp").write_text(chain)
+            result = run("cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
+                         "-DAFF3CT_ROOT=" + os.environ["HULOTTE_TEST_AFF3CT_ROOT"],
+                         "-DCMAKE_DISABLE_FIND_PACKAGE_verilator=TRUE")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run("cmake", "--build", str(project_dir / "build"), "--parallel", "4")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            executable = str(project_dir / "build/polar_chain")
+            # Eb/N0 around 14 dB: no frame error; LLRs (2y/sigma^2) are large, so the
+            # 6-bit quantizer saturates at 31.
+            result = run(executable, "0.2", "200")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("frames=200 fe=0 max_quantized=31", result.stdout)
+            # Very noisy channel: most frames fail.
+            result = run(executable, "3.0", "50")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            frame_errors = int(re.search(r"fe=(\d+)", result.stdout).group(1))
+            self.assertGreater(frame_errors, 10, result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

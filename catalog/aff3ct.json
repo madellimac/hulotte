@@ -119,6 +119,209 @@
           ]
         }
       ]
+    },
+    {
+      "id": "Quantizer_pow2",
+      "summary": "Fixed-point quantizer with a power-of-two scale and saturation, for hardware LLR formats.",
+      "class": "Quantizer_pow2",
+      "template_arguments": "float, int8_t",
+      "arguments": [
+        {"name": "N", "type": "int", "example": "N", "description": "Frame size."},
+        {"name": "fixed_point_pos", "type": "short", "example": "2", "description": "Number of fractional bits."},
+        {"name": "saturation_pos", "type": "short", "example": "6", "description": "Total number of bits, sign included: values saturate to +/-(2^(saturation_pos-1) - 1)."}
+      ],
+      "tasks": [
+        {
+          "name": "process",
+          "sockets": [
+            {"name": "Y_N1", "direction": "in", "type": "float", "size": "N", "description": "Floating-point values."},
+            {"name": "Y_N2", "direction": "out", "type": "int8_t", "size": "N", "description": "Quantized values."}
+          ]
+        }
+      ],
+      "notes": [
+        "The two-argument constructor saturates to the full range of the output type.",
+        "Use int16_t instead of int8_t for formats wider than 8 bits (Quantizer_pow2<float, int16_t>)."
+      ]
+    },
+    {
+      "id": "Source_random_fast",
+      "summary": "Fast random source of information bits (Mersenne Twister, SIMD).",
+      "class": "Source_random_fast",
+      "template_arguments": "int32_t",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of bits generated per frame."}
+      ],
+      "tasks": [
+        {
+          "name": "generate",
+          "sockets": [
+            {"name": "out_data", "direction": "out", "type": "int32_t", "size": "K", "description": "Generated bits."},
+            {"name": "out_count", "direction": "out", "type": "uint32_t", "size": "1", "description": "Number of generated elements."}
+          ]
+        }
+      ],
+      "notes": [
+        "The constructor accepts a seed as second argument (default 0)."
+      ]
+    },
+    {
+      "id": "CRC_polynomial",
+      "summary": "Cyclic redundancy check: appends, removes or checks CRC bits.",
+      "class": "CRC_polynomial",
+      "template_arguments": "int32_t",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K_info", "description": "Number of information bits, CRC bits excluded."},
+        {"name": "poly_key", "type": "std::string", "example": "\"16-CCITT\"", "description": "Known polynomial name such as \"16-CCITT\", \"11-5G\" or \"4-ITU\", or a hexadecimal value such as \"0x8005\"."},
+        {"name": "size", "type": "int", "example": "0", "description": "CRC size in bits; 0 takes it from a named polynomial, required with a hexadecimal value."}
+      ],
+      "tasks": [
+        {
+          "name": "build",
+          "sockets": [
+            {"name": "U_K1", "direction": "in", "type": "int32_t", "size": "K", "description": "Information bits."},
+            {"name": "U_K2", "direction": "out", "type": "int32_t", "size": "K + size", "description": "Information bits followed by the CRC bits."}
+          ]
+        },
+        {
+          "name": "extract",
+          "sockets": [
+            {"name": "V_K1", "direction": "in", "type": "int32_t", "size": "K + size", "description": "Decoded bits with their CRC."},
+            {"name": "V_K2", "direction": "out", "type": "int32_t", "size": "K", "description": "Decoded information bits."}
+          ]
+        },
+        {
+          "name": "check",
+          "sockets": [
+            {"name": "V_K", "direction": "in", "type": "int32_t", "size": "K + size", "description": "Bits to check; the task status tells whether the CRC matches."}
+          ]
+        }
+      ],
+      "notes": [
+        "A CRC-aided decoder takes this module as constructor argument; its K and the encoder K are then K + size."
+      ]
+    },
+    {
+      "id": "Encoder_polar",
+      "summary": "Non-systematic polar encoder.",
+      "class": "Encoder_polar",
+      "template_arguments": "int32_t",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of information bits (CRC bits included when a CRC is used)."},
+        {"name": "N", "type": "int", "example": "N", "description": "Codeword length, a power of two."},
+        {"name": "frozen_bits", "type": "std::vector<bool>", "example": "frozen_bits", "description": "N flags, true for a frozen bit."}
+      ],
+      "tasks": [
+        {
+          "name": "encode",
+          "sockets": [
+            {"name": "U_K", "direction": "in", "type": "int32_t", "size": "K", "description": "Information bits."},
+            {"name": "X_N", "direction": "out", "type": "int32_t", "size": "N", "description": "Codeword."}
+          ]
+        }
+      ],
+      "notes": [
+        "Build frozen_bits before the encoder and decoder, for example with the Gaussian approximation at a design noise level: aff3ct::tools::Frozenbits_generator_GA_Arikan frozen_bits_generator(K, N); aff3ct::tools::Sigma<> design_sigma(0.5f); frozen_bits_generator.set_noise(design_sigma); std::vector<bool> frozen_bits(N); frozen_bits_generator.generate(frozen_bits); (true marks a frozen bit). A fixed frozen set can also be written directly into the vector.",
+        "Frozenbits_generator_5G reads conf/cde/awgn_polar_codes/5G/N_1024.pc from the AFF3CT 'conf' submodule, which hulotte deps install does not fetch."
+      ]
+    },
+    {
+      "id": "Decoder_polar_SC_naive",
+      "summary": "Successive cancellation (SC) polar decoder, reference implementation.",
+      "class": "Decoder_polar_SC_naive",
+      "template_arguments": "int32_t, float",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of information bits."},
+        {"name": "N", "type": "int", "example": "N", "description": "Codeword length, a power of two."},
+        {"name": "frozen_bits", "type": "std::vector<bool>", "example": "frozen_bits", "description": "The frozen bits of the encoder."}
+      ],
+      "tasks": [
+        {
+          "name": "decode_siho",
+          "sockets": [
+            {"name": "Y_N", "direction": "in", "type": "float", "size": "N", "description": "Input LLRs (a positive LLR favors bit 0)."},
+            {"name": "CWD", "direction": "out", "type": "int8_t", "size": "1", "description": "Codeword detection status."},
+            {"name": "V_K", "direction": "out", "type": "int32_t", "size": "K", "description": "Decoded information bits."}
+          ]
+        }
+      ],
+      "notes": [
+        "Pairs with the non-systematic Encoder_polar."
+      ]
+    },
+    {
+      "id": "Decoder_polar_SCL_naive",
+      "summary": "Successive cancellation list (SCL) polar decoder, reference implementation.",
+      "class": "Decoder_polar_SCL_naive",
+      "template_arguments": "int32_t, float",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of information bits."},
+        {"name": "N", "type": "int", "example": "N", "description": "Codeword length, a power of two."},
+        {"name": "L", "type": "int", "example": "L", "description": "List size."},
+        {"name": "frozen_bits", "type": "std::vector<bool>", "example": "frozen_bits", "description": "The frozen bits of the encoder."}
+      ],
+      "tasks": [
+        {
+          "name": "decode_siho",
+          "sockets": [
+            {"name": "Y_N", "direction": "in", "type": "float", "size": "N", "description": "Input LLRs (a positive LLR favors bit 0)."},
+            {"name": "CWD", "direction": "out", "type": "int8_t", "size": "1", "description": "Codeword detection status."},
+            {"name": "V_K", "direction": "out", "type": "int32_t", "size": "K", "description": "Decoded information bits."}
+          ]
+        }
+      ],
+      "notes": [
+        "Pairs with the non-systematic Encoder_polar."
+      ]
+    },
+    {
+      "id": "Decoder_polar_SCL_naive_CA",
+      "summary": "CRC-aided SCL (CA-SCL) polar decoder, reference implementation.",
+      "class": "Decoder_polar_SCL_naive_CA",
+      "template_arguments": "int32_t, float",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of information bits, CRC bits included (K_info + CRC size)."},
+        {"name": "N", "type": "int", "example": "N", "description": "Codeword length, a power of two."},
+        {"name": "L", "type": "int", "example": "L", "description": "List size."},
+        {"name": "frozen_bits", "type": "std::vector<bool>", "example": "frozen_bits", "description": "The frozen bits of the encoder."},
+        {"name": "crc", "type": "const CRC<int32_t>&", "example": "crc_polynomial", "description": "The CRC module, built with K_info; the decoder keeps its own copy."}
+      ],
+      "tasks": [
+        {
+          "name": "decode_siho",
+          "sockets": [
+            {"name": "Y_N", "direction": "in", "type": "float", "size": "N", "description": "Input LLRs (a positive LLR favors bit 0)."},
+            {"name": "CWD", "direction": "out", "type": "int8_t", "size": "1", "description": "Codeword detection status."},
+            {"name": "V_K", "direction": "out", "type": "int32_t", "size": "K", "description": "Decoded bits, CRC bits included."}
+          ]
+        }
+      ],
+      "notes": [
+        "Typical chain: source (K_info) -> crc build -> polar encoder (K_info + CRC size, N) -> ... -> this decoder -> crc extract -> monitor (K_info)."
+      ]
+    },
+    {
+      "id": "Monitor_BFER",
+      "summary": "Bit and frame error counter (BER/FER) with a stopping criterion.",
+      "class": "Monitor_BFER",
+      "template_arguments": "int32_t",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "K", "description": "Number of bits compared per frame."},
+        {"name": "max_fe", "type": "unsigned", "example": "100", "description": "Number of frame errors after which fe_limit_achieved() returns true."}
+      ],
+      "tasks": [
+        {
+          "name": "check_errors",
+          "sockets": [
+            {"name": "U", "direction": "in", "type": "int32_t", "size": "K", "description": "Reference bits (from the source)."},
+            {"name": "V", "direction": "in", "type": "int32_t", "size": "K", "description": "Decoded bits."}
+          ]
+        }
+      ],
+      "notes": [
+        "After the run: get_n_analyzed_fra(), get_n_fe(), get_n_be(), get_fer() and get_ber(); reset() before the next SNR point.",
+        "Stop the simulation loop when fe_limit_achieved() is true; an optional third argument max_n_frames also bounds the frame count (frame_limit_achieved())."
+      ]
     }
   ]
 }
