@@ -30,7 +30,8 @@ class NewProjectCliTests(unittest.TestCase):
             return original_open(path, *arguments, **keywords)
 
         with tempfile.TemporaryDirectory() as temporary_directory:
-            project_dir = Path(temporary_directory)
+            # Resolve the directory: on macOS the temporary directory is reached through a symlink.
+            project_dir = Path(temporary_directory).resolve()
             marker = project_dir / "keep.txt"
             marker.write_text("preserve")
             with patch.object(Path, "open", open_file):
