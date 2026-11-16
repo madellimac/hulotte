@@ -4,11 +4,11 @@
 
 namespace spu::module {
 
-class PassThrough : public Stateful
+class Pass_through : public Stateful
 {
 public:
-    explicit PassThrough(int frame_size);
-    PassThrough* clone() const override;
+    explicit Pass_through(int frame_size);
+    Pass_through* clone() const override;
 
 private:
     int frame_size;

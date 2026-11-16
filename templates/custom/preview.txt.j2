@@ -15,8 +15,8 @@ Tasks and sockets:
     in   in   {{ in_type }}[n_in]
     out  out  {{ out_type }}[n_out]
 
-Example socket bindings for source -> {{ class_name }} -> PassThrough:
-Replace the existing source -> PassThrough binding; do not keep both connections.
+Example socket bindings for source -> {{ class_name }} -> Pass_through:
+Replace the existing source -> Pass_through binding; do not keep both connections.
   source["generate::out_data"] = {{ instance_name }}["process::in"];
   {{ instance_name }}["process::out"] = pass_through["process::in"];
 

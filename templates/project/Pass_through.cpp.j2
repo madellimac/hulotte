@@ -1,35 +1,35 @@
-#include "PassThrough.hpp"
+#include "Pass_through.hpp"
 
 #include <algorithm>
 
 namespace spu::module {
 
-PassThrough::PassThrough(int frame_size)
+Pass_through::Pass_through(int frame_size)
 : Stateful(), frame_size(frame_size)
 {
-    this->set_name("PassThrough");
-    this->set_short_name("PassThrough");
+    this->set_name("Pass_through");
+    this->set_short_name("Pass_through");
 
     auto& task = this->create_task("process");
     auto input_socket = this->create_socket_in<int>(task, "in", frame_size);
     auto output_socket = this->create_socket_out<int>(task, "out", frame_size);
     this->create_codelet(task, [input_socket, output_socket](Module& module, runtime::Task& task, const size_t)
     {
-        auto& pass_through = static_cast<PassThrough&>(module);
+        auto& pass_through = static_cast<Pass_through&>(module);
         pass_through.process(static_cast<int*>(task[input_socket].get_dataptr()),
                              static_cast<int*>(task[output_socket].get_dataptr()));
         return runtime::status_t::SUCCESS;
     });
 }
 
-PassThrough* PassThrough::clone() const
+Pass_through* Pass_through::clone() const
 {
-    auto* copy = new PassThrough(*this);
+    auto* copy = new Pass_through(*this);
     copy->deep_copy(*this);
     return copy;
 }
 
-void PassThrough::process(const int* input, int* output) const
+void Pass_through::process(const int* input, int* output) const
 {
     std::copy(input, input + frame_size, output);
 }

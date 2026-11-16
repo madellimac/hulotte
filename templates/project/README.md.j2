@@ -8,7 +8,7 @@
 <pre><code>cmake -S . -B build&#10;cmake --build build&#10;./build/{{ executable_name }}&#10;ctest --test-dir build --output-on-failure</code></pre>
 <p>
   The initial pipeline connects a random integer source to the custom
-  <code>PassThrough</code> module and a <code>Comparator</code> reference path.
+  <code>Pass_through</code> module and a <code>Comparator</code> reference path.
   It executes three frames and exits with an error if any output element differs
   from the source.
 </p>

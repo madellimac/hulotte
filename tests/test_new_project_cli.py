@@ -454,7 +454,7 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertIn('pass_through["process::out"] = comparator["check::in_got"]', main_cpp)
             self.assertIn("if (comparator.has_errors())", main_cpp)
             self.assertIn("return 1;", main_cpp)
-            self.assertIn("PassThrough* PassThrough::clone()", (project_dir / "src" / "PassThrough.cpp").read_text())
+            self.assertIn("Pass_through* Pass_through::clone()", (project_dir / "src" / "Pass_through.cpp").read_text())
             self.assertIn("reference[index] != output[index]", (project_dir / "src" / "Comparator.cpp").read_text())
 
     def test_module_add_generates_module_and_prints_manual_integration(self):
@@ -666,7 +666,7 @@ class NewProjectCliTests(unittest.TestCase):
             main_before = (project_dir / "src/main.cpp").read_text()
             result = subprocess.run(
                 [sys.executable, str(CLI_PATH), "module", "add", str(project_dir)],
-                input="5\nSoftDecoder\nY\n", capture_output=True, text=True,
+                input="5\nSoft_decoder\nY\n", capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             api = (project_dir / "src/custom/soft_decoder_api.h").read_text()
@@ -675,13 +675,13 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertIn('extern "C"', api)
             self.assertIn("free(state);", (project_dir / "src/custom/soft_decoder_impl.c").read_text())
             self.assertIn("std::unique_ptr<soft_decoder_state, void (*)(soft_decoder_state*)> state;",
-                          (project_dir / "src/custom/SoftDecoder.hpp").read_text())
-            self.assertIn("hulotte::module::SoftDecoder soft_decoder(n_in, n_out);", result.stdout)
+                          (project_dir / "src/custom/Soft_decoder.hpp").read_text())
+            self.assertIn("hulotte::module::Soft_decoder soft_decoder(n_in, n_out);", result.stdout)
             self.assertEqual((project_dir / "src/main.cpp").read_text(), main_before)
 
             result = subprocess.run(
                 [sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--type", "cfunction",
-                 "--name", "FloatDecoder", "--in-type", "float", "--out-type", "int32_t", "--yes"],
+                 "--name", "Float_decoder", "--in-type", "float", "--out-type", "int32_t", "--yes"],
                 capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -725,10 +725,10 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             main_path = project_dir / "src/main.cpp"
             main_cpp = main_path.read_text().replace(
-                '#include "PassThrough.hpp"', '#include "PassThrough.hpp"\n#include "custom/Gain.hpp"'
+                '#include "Pass_through.hpp"', '#include "Pass_through.hpp"\n#include "custom/Gain.hpp"'
             ).replace(
-                "spu::module::PassThrough pass_through(frame_size);",
-                "spu::module::PassThrough pass_through(frame_size);\n    hulotte::module::Gain gain(frame_size);"
+                "spu::module::Pass_through pass_through(frame_size);",
+                "spu::module::Pass_through pass_through(frame_size);\n    hulotte::module::Gain gain(frame_size);"
             ).replace(
                 'source["generate::out_data"] = pass_through["process::in"];',
                 'source["generate::out_data"] = gain["process::in"];\n'
@@ -762,22 +762,22 @@ class NewProjectCliTests(unittest.TestCase):
 
             for arguments in (
                 ("init", str(project_dir)),
-                ("module", "add", str(project_dir), "--type", "verilator", "--name", "WaveBlock", "--yes"),
-                ("module", "add", str(project_dir), "--type", "verilator", "--name", "SecondBlock", "--yes"),
+                ("module", "add", str(project_dir), "--type", "verilator", "--name", "Wave_block", "--yes"),
+                ("module", "add", str(project_dir), "--type", "verilator", "--name", "Second_block", "--yes"),
             ):
                 result = run(sys.executable, str(CLI_PATH), *arguments)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             main_path = project_dir / "src/main.cpp"
             main_cpp = main_path.read_text()
-            main_cpp = main_cpp.replace('#include "PassThrough.hpp"',
-                                        '#include "custom/WaveBlock.hpp"\n#include "custom/SecondBlock.hpp"')
+            main_cpp = main_cpp.replace('#include "Pass_through.hpp"',
+                                        '#include "custom/Wave_block.hpp"\n#include "custom/Second_block.hpp"')
             main_cpp = main_cpp.replace("int main()", "int main(int argc, char** argv)")
             main_cpp = main_cpp.replace(
-                "spu::module::PassThrough pass_through(frame_size);",
-                'hulotte::module::WaveBlock pass_through(frame_size, argc > 1 ? argv[1] : "");\n'
-                '    auto probe = std::unique_ptr<hulotte::module::WaveBlock>(pass_through.clone());\n'
-                '    hulotte::module::SecondBlock second(frame_size, argc > 2 ? argv[2] : "");',
+                "spu::module::Pass_through pass_through(frame_size);",
+                'hulotte::module::Wave_block pass_through(frame_size, argc > 1 ? argv[1] : "");\n'
+                '    auto probe = std::unique_ptr<hulotte::module::Wave_block>(pass_through.clone());\n'
+                '    hulotte::module::Second_block second(frame_size, argc > 2 ? argv[2] : "");',
             )
             main_cpp = main_cpp.replace('pass_through["process::in"]', 'pass_through["simulate::input"]')
             main_cpp = main_cpp.replace('pass_through["process::out"]', 'pass_through["simulate::output"]')
@@ -821,7 +821,7 @@ class NewProjectCliTests(unittest.TestCase):
             result = run(executable, "not_a_directory/trace.vcd", cwd=project_dir)
             self.assertNotEqual(result.returncode, 0)
 
-            rtl_path = project_dir / "src/hw/WaveBlock.sv"
+            rtl_path = project_dir / "src/hw/Wave_block.sv"
             rtl_path.write_text(rtl_path.read_text().replace(
                 "assign out_valid = !reset && in_valid;", "assign out_valid = 1'b0;"
             ))
@@ -829,7 +829,7 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = run(executable, "traces/stalled.vcd", cwd=project_dir)
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn("Verilator frame timeout in WaveBlock", result.stderr)
+            self.assertIn("Verilator frame timeout in Wave_block", result.stderr)
             partial_waveform = (project_dir / "traces/stalled.vcd").read_text()
             self.assertIn("$enddefinitions", partial_waveform)
             self.assertRegex(partial_waveform, r"(?m)^#\d+$")
@@ -841,7 +841,7 @@ class NewProjectCliTests(unittest.TestCase):
     def test_verilator_wide_asymmetric_block_streams_frames_and_counts_cycles(self):
         # 16 signed 6-bit LLRs per beat (a 96-bit bus) become 8 hard decisions per beat:
         # decision i is the sign of llr[2i] + llr[2i+1], registered once (one cycle of latency).
-        rtl = r'''module PairDecoder #(
+        rtl = r'''module Pair_decoder #(
     parameter int IN_WIDTH  = 6,
     parameter int IN_LANES  = 16,
     parameter int OUT_WIDTH = 1,
@@ -881,7 +881,7 @@ endmodule
 '''
         main = r'''#include <streampu.hpp>
 
-#include "custom/PairDecoder.hpp"
+#include "custom/Pair_decoder.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -890,7 +890,7 @@ endmodule
 int main() try
 {
     constexpr int n_in = 32, n_out = 16, n_frames = 4;
-    hulotte::module::PairDecoder decoder(n_in, n_out);
+    hulotte::module::Pair_decoder decoder(n_in, n_out);
     decoder.set_n_frames(n_frames);
 
     std::vector<int8_t> llrs(n_in * n_frames);
@@ -933,13 +933,13 @@ catch (const std::exception& error)
 
             for arguments in (
                 ("init", str(project_dir)),
-                ("module", "add", str(project_dir), "--type", "verilator", "--name", "PairDecoder",
+                ("module", "add", str(project_dir), "--type", "verilator", "--name", "Pair_decoder",
                  "--in-type", "int8_t", "--in-width", "6", "--in-lanes", "16",
                  "--out-type", "int32_t", "--out-width", "1", "--out-lanes", "8", "--yes"),
             ):
                 result = run(sys.executable, str(CLI_PATH), *arguments)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            (project_dir / "src/hw/PairDecoder.sv").write_text(rtl)
+            (project_dir / "src/hw/Pair_decoder.sv").write_text(rtl)
             (project_dir / "src/main.cpp").write_text(main)
 
             result = run("cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
@@ -952,7 +952,7 @@ catch (const std::exception& error)
             # Two input beats per frame, accepted every cycle: the last output beat comes two
             # cycles after the first input beat, and a new frame starts every two cycles.
             self.assertIn("frames=4 latency=2/2 interval=2/2 intervals=3", result.stdout)
-            self.assertIn("PairDecoder: 4 frame(s), latency min/mean/max = 2/2/2 cycles", result.stdout)
+            self.assertIn("Pair_decoder: 4 frame(s), latency min/mean/max = 2/2/2 cycles", result.stdout)
 
     @unittest.skipUnless(
         os.environ.get("HULOTTE_TEST_STREAMPU_ROOT") and shutil.which("cmake"),
@@ -962,7 +962,7 @@ catch (const std::exception& error)
         # float LLRs in, one decided bit per pair of LLRs out (n_out = n_in / 2), three frames per wave.
         main = r'''#include <streampu.hpp>
 
-#include "custom/PairDecider.hpp"
+#include "custom/Pair_decider.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -971,7 +971,7 @@ catch (const std::exception& error)
 int main() try
 {
     constexpr int n_in = 8, n_out = 4, n_frames = 3;
-    hulotte::module::PairDecider decider(n_in, n_out);
+    hulotte::module::Pair_decider decider(n_in, n_out);
     decider.set_n_frames(n_frames);
     std::vector<float> llrs(n_in * n_frames);
     for (int i = 0; i < n_in * n_frames; ++i)
@@ -1002,17 +1002,17 @@ catch (const std::exception& error)
 
             result = run(sys.executable, str(CLI_PATH), "init", str(project_dir))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            result = run(sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--name", "PairDecider",
+            result = run(sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--name", "Pair_decider",
                          "--in-type", "float", "--out-type", "int32_t", "--yes")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("hulotte::module::PairDecider pair_decider(n_in, n_out);", result.stdout)
+            self.assertIn("hulotte::module::Pair_decider pair_decider(n_in, n_out);", result.stdout)
             self.assertIn("in   in   float[n_in]", result.stdout)
-            module_path = project_dir / "src/custom/PairDecider.cpp"
+            module_path = project_dir / "src/custom/Pair_decider.cpp"
             module_path.write_text(module_path.read_text().replace(
                 "        output[i] = i < n_in ? static_cast<out_t>(input[i]) : out_t(0);\n",
                 "        output[i] = input[2 * i] + input[2 * i + 1] < 0.0f ? 1 : 0;\n"))
             (project_dir / "src/main.cpp").write_text(main)
-            for name in ("PassThrough.hpp", "PassThrough.cpp", "Comparator.hpp", "Comparator.cpp"):
+            for name in ("Pass_through.hpp", "Pass_through.cpp", "Comparator.hpp", "Comparator.cpp"):
                 (project_dir / "src" / name).unlink()   # the example modules are not needed
             result = run("cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
                          "-DSTREAMPU_ROOT=" + os.environ["HULOTTE_TEST_STREAMPU_ROOT"],
@@ -1058,13 +1058,13 @@ void hard_decider_destroy(hard_decider_state* state) { free(state); }
 '''
         main = r'''#include <streampu.hpp>
 
-#include "custom/HardDecider.hpp"
+#include "custom/Hard_decider.hpp"
 
 #include <iostream>
 #include <memory>
 #include <vector>
 
-int run(hulotte::module::HardDecider& decider, std::vector<float>& llrs, int n, int n_frames)
+int run(hulotte::module::Hard_decider& decider, std::vector<float>& llrs, int n, int n_frames)
 {
     decider["process::in"] = llrs.data();
     decider("process").exec();
@@ -1078,7 +1078,7 @@ int run(hulotte::module::HardDecider& decider, std::vector<float>& llrs, int n, 
 int main() try
 {
     constexpr int n = 8, n_frames = 3;
-    hulotte::module::HardDecider decider(n, n);
+    hulotte::module::Hard_decider decider(n, n);
     decider.set_n_frames(n_frames);
     std::vector<float> llrs(n * n_frames);
     for (int i = 0; i < n * n_frames; ++i)
@@ -1086,7 +1086,7 @@ int main() try
     if (run(decider, llrs, n, n_frames) != 0)
         return 1;
     // A clone creates and later destroys its own state (only a Sequence allocates its outputs).
-    std::unique_ptr<hulotte::module::HardDecider> copy(decider.clone());
+    std::unique_ptr<hulotte::module::Hard_decider> copy(decider.clone());
     copy.reset();
     std::cout << "[PASS] frames and clone" << std::endl;
 
@@ -1108,7 +1108,7 @@ catch (const std::exception& error)
 
             for arguments in (
                 ("init", str(project_dir)),
-                ("module", "add", str(project_dir), "--type", "cfunction", "--name", "HardDecider",
+                ("module", "add", str(project_dir), "--type", "cfunction", "--name", "Hard_decider",
                  "--in-type", "float", "--out-type", "int32_t", "--yes"),
             ):
                 result = run(sys.executable, str(CLI_PATH), *arguments)
@@ -1125,7 +1125,7 @@ catch (const std::exception& error)
             result = run(str(project_dir / "build/c_decider"))
             self.assertIn("[PASS] frames and clone", result.stdout, result.stderr)
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-            self.assertIn("hard_decider_process() failed with code 7 in HardDecider", result.stderr)
+            self.assertIn("hard_decider_process() failed with code 7 in Hard_decider", result.stderr)
 
     @unittest.skipUnless(
         os.environ.get("HULOTTE_TEST_AFF3CT_ROOT") and shutil.which("cmake"),

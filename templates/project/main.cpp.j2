@@ -1,6 +1,6 @@
 #include <streampu.hpp>
 
-#include "PassThrough.hpp"
+#include "Pass_through.hpp"
 #include "Comparator.hpp"
 
 #include <iostream>
@@ -10,7 +10,7 @@ int main() try
 {
     constexpr int frame_size = 16;
     spu::module::Source_random<int> source(frame_size);
-    spu::module::PassThrough pass_through(frame_size);
+    spu::module::Pass_through pass_through(frame_size);
     spu::module::Comparator comparator(frame_size);
 
     source["generate::out_data"] = comparator["check::in_ref"];

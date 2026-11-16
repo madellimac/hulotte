@@ -7,7 +7,7 @@ Version **0.1.0** is an initial experimental source release. See [CHANGELOG.md](
 ## Current features
 
 - `python3 hulotte.py init <directory>` creates a standalone project and refuses to overwrite a non-empty directory.
-- The generated project contains a `Source_random<int>` source, a custom StreamPU `PassThrough` module, and a `Comparator` module, with the graph explicitly connected in `src/main.cpp`.
+- The generated project contains a `Source_random<int>` source, a custom StreamPU `Pass_through` module, and a `Comparator` module, with the graph explicitly connected in `src/main.cpp`.
 - The comparator checks the custom module output against the original source and returns a failure exit code if any elements differ.
 - The executable processes three frames and includes a CTest smoke test.
 - The generated CMake project locates StreamPU through the `STREAMPU_ROOT` environment variable.
@@ -58,7 +58,7 @@ ctest --test-dir build --output-on-failure
 ./build/my_pipeline
 ```
 
-The pipeline is defined in `src/main.cpp`. The custom module and comparator are implemented in `src/PassThrough.hpp`, `src/PassThrough.cpp`, `src/Comparator.hpp`, and `src/Comparator.cpp`; edit these files to experiment. CMake compiles every `.cpp` file directly under `src/`, so these example modules can be deleted once `main.cpp` no longer uses them (re-run `cmake -S . -B build` after adding or removing a file).
+The pipeline is defined in `src/main.cpp`. The custom module and comparator are implemented in `src/Pass_through.hpp`, `src/Pass_through.cpp`, `src/Comparator.hpp`, and `src/Comparator.cpp`; edit these files to experiment. CMake compiles every `.cpp` file directly under `src/`, so these example modules can be deleted once `main.cpp` no longer uses them (re-run `cmake -S . -B build` after adding or removing a file).
 
 ## Add a custom StreamPU module
 
@@ -75,7 +75,7 @@ A custom module has one task `process` with an input socket `in` and an output s
 
 ```sh
 # A decoder: n_in float LLRs in, n_out int32_t bits out.
-python3 hulotte.py module add "$HOME/projects/my_pipeline" --name MyDecoder --in-type float --out-type int32_t --yes
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --name My_decoder --in-type float --out-type int32_t --yes
 ```
 
 Write the processing of one frame in `process()`. The generated codelet calls it for every frame of a StreamPU wave (`set_n_frames()`).
@@ -86,12 +86,12 @@ To create a StreamPU adapter backed by a Verilator model:
 # Open the assistant and choose the Verilator-backed module type.
 python3 hulotte.py module add "$HOME/projects/my_pipeline"
 # Or create a Verilator module without prompts.
-python3 hulotte.py module add "$HOME/projects/my_pipeline" --type verilator --name FilterBlock --yes
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --type verilator --name Filter_block --yes
 ```
 
-The generated SystemVerilog block starts as a Ready/Valid passthrough example. Edit `src/hw/FilterBlock.sv` to implement the desired hardware behavior. CMake discovers `.sv` files, invokes Verilator during configuration, and compiles the generated model on the next build. The assistant prints the wrapper instantiation and socket bindings; integrate them into `src/main.cpp` manually.
+The generated SystemVerilog block starts as a Ready/Valid passthrough example. Edit `src/hw/Filter_block.sv` to implement the desired hardware behavior. CMake discovers `.sv` files, invokes Verilator during configuration, and compiles the generated model on the next build. The assistant prints the wrapper instantiation and socket bindings; integrate them into `src/main.cpp` manually.
 
-Replace the existing processing-path bindings when inserting a new module; do not connect two producers to the same input socket. Newly added classes are under `hulotte::module`, while the initial example `PassThrough` and `Comparator` are under `spu::module`.
+Replace the existing processing-path bindings when inserting a new module; do not connect two producers to the same input socket. Newly added classes are under `hulotte::module`, while the initial example `Pass_through` and `Comparator` are under `spu::module`.
 
 ## Use an existing StreamPU or AFF3CT module
 
@@ -125,11 +125,11 @@ A `cfunction` module calls C code through three functions, so that the code need
 
 ```sh
 # Float LLRs in, int32_t bits out.
-python3 hulotte.py module add "$HOME/projects/my_pipeline" --type cfunction --name SoftDecoder \
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --type cfunction --name Soft_decoder \
     --in-type float --out-type int32_t --yes
 ```
 
-The command creates `src/custom/soft_decoder_api.h`, which declares the API, an example implementation `src/custom/soft_decoder_impl.c` that copies its input, and the StreamPU adapter `SoftDecoder` (task `process`, sockets `in` and `out`):
+The command creates `src/custom/soft_decoder_api.h`, which declares the API, an example implementation `src/custom/soft_decoder_impl.c` that copies its input, and the StreamPU adapter `Soft_decoder` (task `process`, sockets `in` and `out`):
 
 ```c
 soft_decoder_state* soft_decoder_create(int n_in, int n_out);  /* NULL on failure */
@@ -183,7 +183,7 @@ decoder.print_cycle_stats(std::cout);
 Newly generated Verilator adapters accept an optional VCD output path. Replace the existing instance declaration in `src/main.cpp` with:
 
 ```cpp
-hulotte::module::FilterBlock filter_block(frame_size, "traces/filter_block.vcd");
+hulotte::module::Filter_block filter_block(frame_size, "traces/filter_block.vcd");
 ```
 
 The one-argument constructor keeps tracing disabled. Paths are relative to the executable's working directory; parent directories are created automatically. Use a distinct path for each hardware instance. An existing file is replaced on a new simulation run, but two active instances cannot share the same path.

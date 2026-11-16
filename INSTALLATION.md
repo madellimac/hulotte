@@ -170,11 +170,11 @@ python3 hulotte.py module add "$HOME/projects/my_pipeline"
 Or create the starter block non-interactively:
 
 ```sh
-# Generate a Verilator-backed StreamPU adapter named FilterBlock.
-python3 hulotte.py module add "$HOME/projects/my_pipeline" --type verilator --name FilterBlock --yes
+# Generate a Verilator-backed StreamPU adapter named Filter_block.
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --type verilator --name Filter_block --yes
 ```
 
-The command creates `src/hw/FilterBlock.sv` and the C++ StreamPU adapter under `src/custom/`. The SystemVerilog file is a Ready/Valid passthrough example that you should edit for your design. CMake detects the `.sv` file, configures Verilator, and builds the generated model. The command prints the C++ instantiation and socket bindings for manual integration into `src/main.cpp`; it does not modify that file.
+The command creates `src/hw/Filter_block.sv` and the C++ StreamPU adapter under `src/custom/`. The SystemVerilog file is a Ready/Valid passthrough example that you should edit for your design. CMake detects the `.sv` file, configures Verilator, and builds the generated model. The command prints the C++ instantiation and socket bindings for manual integration into `src/main.cpp`; it does not modify that file.
 
 ## Optional waveform viewers
 
@@ -222,4 +222,4 @@ If linking a Verilator project fails on an undefined `sc_time_stamp()`, the adap
 
 The release checks were run on Linux with Python 3.12.3, Jinja2 3.1.2, CMake 3.28.3, GCC 13.3, Verilator 5.028, StreamPU revision `b036089b872a950ae5fe6eae31e7963a4e043670`, and AFF3CT revision `60e113d4de30c6954e03ff31770741d28e6fcc07` (v4.1.2). Other tool versions satisfying the declared requirements have not all been certified. Waveform file contents are tested automatically; graphical viewer behavior is not part of the automated release checks.
 
-The current generator creates a StreamPU source, a custom `PassThrough` module, and a `Comparator` that checks the module output against the source. The guided `hulotte.py module add <project>` command can create custom C++ modules or Verilator-backed adapters, and describe modules from the StreamPU and AFF3CT catalogs; their C++ integration is shown for manual insertion into `main.cpp`. Physical-device I/O integrations are not yet available.
+The current generator creates a StreamPU source, a custom `Pass_through` module, and a `Comparator` that checks the module output against the source. The guided `hulotte.py module add <project>` command can create custom C++ modules or Verilator-backed adapters, and describe modules from the StreamPU and AFF3CT catalogs; their C++ integration is shown for manual insertion into `main.cpp`. Physical-device I/O integrations are not yet available.

@@ -146,8 +146,8 @@ def project_files(project_name: str, executable_name: str) -> dict[str, str]:
         'CMakeLists.txt': render_template('project/CMakeLists.txt.j2', **context),
         'README.md': render_template('project/README.md.j2', **context),
         'src/main.cpp': render_template('project/main.cpp.j2', **context),
-        'src/PassThrough.hpp': render_template('project/PassThrough.hpp.j2', **context),
-        'src/PassThrough.cpp': render_template('project/PassThrough.cpp.j2', **context),
+        'src/Pass_through.hpp': render_template('project/Pass_through.hpp.j2', **context),
+        'src/Pass_through.cpp': render_template('project/Pass_through.cpp.j2', **context),
         'src/Comparator.hpp': render_template('project/Comparator.hpp.j2', **context),
         'src/Comparator.cpp': render_template('project/Comparator.cpp.j2', **context),
     }
