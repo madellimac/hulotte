@@ -10,6 +10,8 @@
 - The AFF3CT catalog describes `Source_random_fast`, `CRC_polynomial`, the polar codec (`Encoder_polar`, `Decoder_polar_SC_naive`, `Decoder_polar_SCL_naive`, `Decoder_polar_SCL_naive_CA`), `Quantizer_pow2` with saturation, and `Monitor_BFER`, enough for a CA-SCL error-rate simulation.
 - Generated projects compile every `.cpp` file directly under `src/`, so the example `PassThrough` and `Comparator` modules can be removed without editing `CMakeLists.txt`.
 - The AFF3CT catalog describes `Decoder_NO`, the hard decision of an uncoded link.
+- Custom C++ modules accept `--in-type` and `--out-type` (integer types, `float`, `double`) and a second constructor `(n_in, n_out)` for different input and output frame sizes.
+- Fixed: a custom C++ module processed only the first frame of a StreamPU wave when several frames were set with `set_n_frames()`.
 - Fixed: a Verilator adapter processed only the first frame when a task carried several frames.
 - Fixed: Verilator adapters failed to link with Verilator 5.018 (undefined `sc_time_stamp()`).
 

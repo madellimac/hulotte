@@ -71,6 +71,15 @@ python3 hulotte.py module add "$HOME/projects/my_pipeline"
 
 The assistant previews the files and C++ integration snippet, then asks before writing. It does not modify `main.cpp`; copy the displayed include, instance, and socket bindings into the graph yourself. For scripted use, provide `--name Gain --yes` to skip the prompts and confirmation.
 
+A custom module has one task `process` with an input socket `in` and an output socket `out`. By default both carry `int` elements and have the same frame size: `Gain gain(frame_size)`. Choose other element types with `--in-type` and `--out-type` (any integer type of the stream interface, `float` or `double`), and pass different frame sizes to the second constructor, `Gain gain(n_in, n_out)`:
+
+```sh
+# A decoder: n_in float LLRs in, n_out int32_t bits out.
+python3 hulotte.py module add "$HOME/projects/my_pipeline" --name MyDecoder --in-type float --out-type int32_t --yes
+```
+
+Write the processing of one frame in `process()`. The generated codelet calls it for every frame of a StreamPU wave (`set_n_frames()`).
+
 To create a StreamPU adapter backed by a Verilator model:
 
 ```sh

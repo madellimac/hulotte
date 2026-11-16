@@ -408,7 +408,7 @@ class NewProjectCliTests(unittest.TestCase):
             render_template("custom/Module.hpp.j2")
         with self.assertRaises(TemplateNotFound):
             render_template("missing-template.j2")
-        rendered = render_template("custom/Module.hpp.j2", class_name="Gain")
+        rendered = render_template("custom/Module.hpp.j2", class_name="Gain", in_type="int", out_type="int")
         self.assertIn("class Gain", rendered)
         self.assertIn("#include <streampu.hpp>", rendered)
         self.assertTrue(rendered.endswith("\n"))
@@ -639,7 +639,7 @@ class NewProjectCliTests(unittest.TestCase):
                 (["--type", "verilator", "--in-type", "int8_t", "--in-width", "9"], "--in-width must be between 1 and 8"),
                 (["--type", "verilator", "--out-lanes", "0"], "--out-lanes must be a positive integer"),
                 (["--type", "verilator", "--in-lanes", "200"], "exceeds 4096 bits"),
-                (["--type", "custom", "--in-type", "int8_t"], "only apply to verilator and cfunction modules"),
+                (["--type", "custom", "--in-lanes", "2"], "only apply to verilator modules"),
                 (["--type", "cfunction", "--in-lanes", "2"], "only apply to verilator modules"),
                 (["--type", "verilator", "--in-type", "float"], "--in-type must be one of: int, int8_t"),
             )
@@ -741,8 +741,8 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             module_path = project_dir / "src/custom/Gain.cpp"
             module_path.write_text(module_path.read_text().replace(
-                "std::copy(input, input + frame_size, output);",
-                "std::copy(input, input + frame_size, output);\n    output[0] ^= 1;"
+                "        output[i] = i < n_in ? static_cast<out_t>(input[i]) : out_t(0);\n",
+                "        output[i] = i < n_in ? static_cast<out_t>(input[i]) : out_t(0);\n    output[0] ^= 1;\n"
             ))
             result = run("cmake", "--build", str(project_dir / "build"))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -953,6 +953,76 @@ catch (const std::exception& error)
             # cycles after the first input beat, and a new frame starts every two cycles.
             self.assertIn("frames=4 latency=2/2 interval=2/2 intervals=3", result.stdout)
             self.assertIn("PairDecoder: 4 frame(s), latency min/mean/max = 2/2/2 cycles", result.stdout)
+
+    @unittest.skipUnless(
+        os.environ.get("HULOTTE_TEST_STREAMPU_ROOT") and shutil.which("cmake"),
+        "Set HULOTTE_TEST_STREAMPU_ROOT and install CMake to run the typed custom module test",
+    )
+    def test_custom_module_with_types_and_sizes_processes_every_frame_of_a_wave(self):
+        # float LLRs in, one decided bit per pair of LLRs out (n_out = n_in / 2), three frames per wave.
+        main = r'''#include <streampu.hpp>
+
+#include "custom/PairDecider.hpp"
+
+#include <cstdint>
+#include <iostream>
+#include <vector>
+
+int main() try
+{
+    constexpr int n_in = 8, n_out = 4, n_frames = 3;
+    hulotte::module::PairDecider decider(n_in, n_out);
+    decider.set_n_frames(n_frames);
+    std::vector<float> llrs(n_in * n_frames);
+    for (int i = 0; i < n_in * n_frames; ++i)
+        llrs[i] = (i % 3 == 0 ? -2.0f : 1.0f) + 0.25f * i;
+    decider["process::in"] = llrs.data();
+    decider("process").exec();
+    const auto* bits = static_cast<const int32_t*>(decider["process::out"].get_dataptr());
+    for (int i = 0; i < n_out * n_frames; ++i)
+        if (bits[i] != (llrs[2 * i] + llrs[2 * i + 1] < 0.0f ? 1 : 0))
+        {
+            std::cerr << "[FAIL] bit " << i << std::endl;
+            return 1;
+        }
+    std::cout << "[PASS] " << n_out * n_frames << " bits" << std::endl;
+    return 0;
+}
+catch (const std::exception& error)
+{
+    std::cerr << "[FAIL] " << error.what() << std::endl;
+    return 1;
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_dir = Path(temporary_directory) / "typed_custom"
+
+            def run(*command):
+                return subprocess.run(command, capture_output=True, text=True, timeout=300)
+
+            result = run(sys.executable, str(CLI_PATH), "init", str(project_dir))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run(sys.executable, str(CLI_PATH), "module", "add", str(project_dir), "--name", "PairDecider",
+                         "--in-type", "float", "--out-type", "int32_t", "--yes")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("hulotte::module::PairDecider pair_decider(n_in, n_out);", result.stdout)
+            self.assertIn("in   in   float[n_in]", result.stdout)
+            module_path = project_dir / "src/custom/PairDecider.cpp"
+            module_path.write_text(module_path.read_text().replace(
+                "        output[i] = i < n_in ? static_cast<out_t>(input[i]) : out_t(0);\n",
+                "        output[i] = input[2 * i] + input[2 * i + 1] < 0.0f ? 1 : 0;\n"))
+            (project_dir / "src/main.cpp").write_text(main)
+            for name in ("PassThrough.hpp", "PassThrough.cpp", "Comparator.hpp", "Comparator.cpp"):
+                (project_dir / "src" / name).unlink()   # the example modules are not needed
+            result = run("cmake", "-S", str(project_dir), "-B", str(project_dir / "build"),
+                         "-DSTREAMPU_ROOT=" + os.environ["HULOTTE_TEST_STREAMPU_ROOT"],
+                         "-DCMAKE_DISABLE_FIND_PACKAGE_verilator=TRUE")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run("cmake", "--build", str(project_dir / "build"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = run(str(project_dir / "build/typed_custom"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[PASS] 12 bits", result.stdout)
 
     @unittest.skipUnless(
         os.environ.get("HULOTTE_TEST_STREAMPU_ROOT") and shutil.which("cmake"),

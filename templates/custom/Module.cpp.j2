@@ -1,23 +1,34 @@
 #include "{{ class_name }}.hpp"
 
-#include <algorithm>
+#include <stdexcept>
 
 namespace hulotte::module {
 
 {{ class_name }}::{{ class_name }}(int frame_size)
-: spu::module::Stateful(), frame_size(frame_size)
+: {{ class_name }}(frame_size, frame_size)
 {
+}
+
+{{ class_name }}::{{ class_name }}(int n_in, int n_out)
+: spu::module::Stateful(), n_in(n_in), n_out(n_out)
+{
+    if (n_in <= 0 || n_out <= 0)
+        throw std::invalid_argument("Frame sizes must be positive in {{ class_name }}");
+
     this->set_name("{{ class_name }}");
     this->set_short_name("{{ class_name }}");
 
     auto& task = this->create_task("process");
-    auto input_socket = this->create_socket_in<int>(task, "in", frame_size);
-    auto output_socket = this->create_socket_out<int>(task, "out", frame_size);
+    auto input_socket = this->create_socket_in<in_t>(task, "in", n_in);
+    auto output_socket = this->create_socket_out<out_t>(task, "out", n_out);
     this->create_codelet(task, [input_socket, output_socket](spu::module::Module& module, spu::runtime::Task& task, const size_t)
     {
         auto& custom_module = static_cast<{{ class_name }}&>(module);
-        custom_module.process(static_cast<int*>(task[input_socket].get_dataptr()),
-                              static_cast<int*>(task[output_socket].get_dataptr()));
+        const auto* input = static_cast<const in_t*>(task[input_socket].get_dataptr());
+        auto* output = static_cast<out_t*>(task[output_socket].get_dataptr());
+        // StreamPU calls the codelet once per wave, which holds get_n_frames_per_wave() frames.
+        for (std::size_t f = 0; f < custom_module.get_n_frames_per_wave(); ++f)
+            custom_module.process(input + f * custom_module.n_in, output + f * custom_module.n_out);
         return spu::runtime::status_t::SUCCESS;
     });
 }
@@ -29,9 +40,11 @@ namespace hulotte::module {
     return copy;
 }
 
-void {{ class_name }}::process(const int* input, int* output) const
+void {{ class_name }}::process(const in_t* input, out_t* output) const
 {
-    std::copy(input, input + frame_size, output);
+    // Example: copy the input, truncated or zero-padded to n_out elements. Replace it with your processing.
+    for (int i = 0; i < n_out; ++i)
+        output[i] = i < n_in ? static_cast<out_t>(input[i]) : out_t(0);
 }
 
 }

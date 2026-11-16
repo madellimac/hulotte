@@ -38,9 +38,10 @@ ELEMENT_TYPES = {
     "int32_t": 32,
     "uint32_t": 32,
 }
-# A C function may also exchange floating-point elements, which hardware buses do not carry.
+# Software modules (custom C++ and cfunction) may also exchange floating-point elements,
+# which hardware buses do not carry.
 CFUNCTION_TYPES = {**ELEMENT_TYPES, "float": 32, "double": 64}
-# Stream interface options that also apply to cfunction modules.
+# Stream interface options that also apply to custom and cfunction modules.
 CFUNCTION_INTERFACE_OPTIONS = ("in_type", "out_type")
 # Widest Ready/Valid data bus (lanes x width) accepted for a Verilator block.
 MAX_BUS_WIDTH = 4096
@@ -177,10 +178,11 @@ def module_instance_name(class_name: str) -> str:
     return f"{name}_module" if name in CPP_KEYWORDS else name
 
 
-def custom_module_files(class_name: str) -> dict[str, str]:
+def custom_module_files(class_name: str, in_type: Optional[str] = None, out_type: Optional[str] = None) -> dict[str, str]:
+    context = cfunction_context(class_name, in_type, out_type)
     return {
-        f"src/custom/{class_name}.hpp": render_template("custom/Module.hpp.j2", class_name=class_name),
-        f"src/custom/{class_name}.cpp": render_template("custom/Module.cpp.j2", class_name=class_name),
+        f"src/custom/{class_name}.hpp": render_template("custom/Module.hpp.j2", **context),
+        f"src/custom/{class_name}.cpp": render_template("custom/Module.cpp.j2", **context),
     }
 
 
@@ -264,12 +266,13 @@ def check_project_c_support(project_dir: Path) -> None:
         )
 
 
-def preview_custom_module(project_dir: Path, class_name: str) -> str:
+def preview_custom_module(project_dir: Path, class_name: str, in_type: Optional[str] = None,
+                          out_type: Optional[str] = None) -> str:
     return render_template(
         "custom/preview.txt.j2",
         project_dir=project_dir,
-        class_name=class_name,
         instance_name=module_instance_name(class_name),
+        **cfunction_context(class_name, in_type, out_type),
     )
 
 
@@ -313,10 +316,11 @@ def write_project_files(project_dir: Path, files: dict[str, str]) -> list[Path]:
     return output_paths
 
 
-def add_custom_module(project_dir: Path, class_name: str) -> list[Path]:
+def add_custom_module(project_dir: Path, class_name: str, in_type: Optional[str] = None,
+                      out_type: Optional[str] = None) -> list[Path]:
     project_dir = validate_project_directory(project_dir)
     validate_module_name(class_name)
-    return write_project_files(project_dir, custom_module_files(class_name))
+    return write_project_files(project_dir, custom_module_files(class_name, in_type, out_type))
 
 
 def add_verilator_module(project_dir: Path, class_name: str, interface: Optional[dict] = None) -> list[Path]:
@@ -722,7 +726,7 @@ def main(argv=None) -> int:
     interface_group = add_parser.add_argument_group(
         "stream interface",
         "element formats of a verilator module (default: one 32-bit int per beat on both sides); "
-        "a cfunction module only takes --in-type and --out-type, which also accept float and double",
+        "custom and cfunction modules only take --in-type and --out-type, which also accept float and double",
     )
     for side, label in (("in", "input"), ("out", "output")):
         interface_group.add_argument(f"--{side}-type", choices=list(CFUNCTION_TYPES), help=f"C++ type of an {label} element")
@@ -777,11 +781,12 @@ def main(argv=None) -> int:
             class_name = args.name if args.name is not None else prompted_name
             interface_options = {key: getattr(args, key) for key in DEFAULT_STREAM_INTERFACE}
             given_options = [key for key, value in interface_options.items() if value is not None]
-            allowed_options = {"verilator": DEFAULT_STREAM_INTERFACE, "cfunction": CFUNCTION_INTERFACE_OPTIONS}
+            allowed_options = {"verilator": DEFAULT_STREAM_INTERFACE, "cfunction": CFUNCTION_INTERFACE_OPTIONS,
+                               "custom": CFUNCTION_INTERFACE_OPTIONS}
             rejected_options = [key for key in given_options if key not in allowed_options.get(module_type, ())]
             if rejected_options:
                 applies_to = ("verilator modules" if any(key not in CFUNCTION_INTERFACE_OPTIONS for key in rejected_options)
-                              else "verilator and cfunction modules")
+                              else "verilator, cfunction and custom modules")
                 raise ValueError("Stream interface options (" + ", ".join(
                     "--" + key.replace("_", "-") for key in rejected_options) + f") only apply to {applies_to}")
             if module_type == "verilator":
@@ -797,8 +802,8 @@ def main(argv=None) -> int:
                 class_name = input("Module class name: ").strip()
             validate_module_name(class_name, module_type)
             if module_type == "custom":
-                files = custom_module_files(class_name)
-                preview_text = preview_custom_module(project_dir, class_name)
+                files = custom_module_files(class_name, args.in_type, args.out_type)
+                preview_text = preview_custom_module(project_dir, class_name, args.in_type, args.out_type)
             elif module_type == "cfunction":
                 check_project_c_support(project_dir)
                 files = cfunction_module_files(class_name, args.in_type, args.out_type)

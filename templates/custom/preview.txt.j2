@@ -7,8 +7,17 @@ Add this include to src/main.cpp:
 
 Create the module in main():
     hulotte::module::{{ class_name }} {{ instance_name }}(frame_size);
+  or, when the output frame size differs from the input one:
+    hulotte::module::{{ class_name }} {{ instance_name }}(n_in, n_out);
+
+Tasks and sockets:
+  process
+    in   in   {{ in_type }}[n_in]
+    out  out  {{ out_type }}[n_out]
 
 Example socket bindings for source -> {{ class_name }} -> PassThrough:
 Replace the existing source -> PassThrough binding; do not keep both connections.
   source["generate::out_data"] = {{ instance_name }}["process::in"];
   {{ instance_name }}["process::out"] = pass_through["process::in"];
+
+Write the processing of one frame in {{ class_name }}::process(); the generated body copies its input.

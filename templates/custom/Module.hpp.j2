@@ -1,18 +1,28 @@
 #pragma once
 
 #include <streampu.hpp>
+#include <cstddef>
+#include <cstdint>
 
 namespace hulotte::module {
 
+// Custom StreamPU module.
+// Task "process": socket "in" holds n_in elements of in_t per frame, socket "out" n_out
+// elements of out_t. process() handles one frame; write your processing there.
 class {{ class_name }} : public spu::module::Stateful
 {
 public:
-    explicit {{ class_name }}(int frame_size);
+    using in_t = {{ in_type }};
+    using out_t = {{ out_type }};
+
+    explicit {{ class_name }}(int frame_size); // as many output as input elements
+    {{ class_name }}(int n_in, int n_out);
     {{ class_name }}* clone() const override;
 
 private:
-    int frame_size;
-    void process(const int* input, int* output) const;
+    int n_in;
+    int n_out;
+    void process(const in_t* input, out_t* output) const;
 };
 
 }
