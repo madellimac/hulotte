@@ -231,7 +231,7 @@ class NewProjectCliTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(CLI_PATH), "module", "list"],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for module_id in ("Source_random", "Modem_BPSK", "Channel_AWGN_LLR", "Quantizer_pow2_fast"):
+        for module_id in ("Source_random", "Modem_BPSK", "Channel_AWGN_LLR", "Quantizer_pow2_fast", "Decoder_NO"):
             self.assertIn(module_id, result.stdout)
         result = subprocess.run([sys.executable, str(CLI_PATH), "module", "list", "--library", "streampu"],
                                 capture_output=True, text=True, timeout=30)
@@ -446,7 +446,8 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertIn("<h2>Build and run</h2>", readme)
             self.assertIn("cmake -S . -B build&#10;", readme)
             self.assertNotIn("{{", readme)
-            self.assertIn("src/Comparator.cpp", cmake)
+            self.assertIn('file(GLOB HULOTTE_PROJECT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")', cmake)
+            self.assertNotIn("src/Comparator.cpp", cmake)
             main_cpp = (project_dir / "src" / "main.cpp").read_text()
             self.assertIn('source["generate::out_data"] = comparator["check::in_ref"]', main_cpp)
             self.assertIn('source["generate::out_data"] = pass_through["process::in"]', main_cpp)

@@ -8,6 +8,8 @@
 - Verilator adapters stream all the frames of an execution back to back and record per-frame latency and initiation interval in cycles (`print_cycle_stats()` and accessors). The fixed per-frame cycle limit is replaced by a configurable stall limit.
 - `cfunction` modules wrap C code behind a `create` / `process` / `destroy` API with one state per instance and per clone, and an example implementation. Generated projects enable the C language and compile `src/custom/*.c`.
 - The AFF3CT catalog describes `Source_random_fast`, `CRC_polynomial`, the polar codec (`Encoder_polar`, `Decoder_polar_SC_naive`, `Decoder_polar_SCL_naive`, `Decoder_polar_SCL_naive_CA`), `Quantizer_pow2` with saturation, and `Monitor_BFER`, enough for a CA-SCL error-rate simulation.
+- Generated projects compile every `.cpp` file directly under `src/`, so the example `PassThrough` and `Comparator` modules can be removed without editing `CMakeLists.txt`.
+- The AFF3CT catalog describes `Decoder_NO`, the hard decision of an uncoded link.
 - Fixed: a Verilator adapter processed only the first frame when a task carried several frames.
 - Fixed: Verilator adapters failed to link with Verilator 5.018 (undefined `sc_time_stamp()`).
 

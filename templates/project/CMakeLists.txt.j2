@@ -26,11 +26,10 @@ endif()
 
 find_package(Threads REQUIRED)
 
-add_executable({{ executable_name }}
-    src/main.cpp
-    src/PassThrough.cpp
-    src/Comparator.cpp
-)
+# Every source directly under src/ belongs to the executable: the example modules can be
+# removed or new ones added without editing this file (re-run cmake to pick up the change).
+file(GLOB HULOTTE_PROJECT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+add_executable({{ executable_name }} ${HULOTTE_PROJECT_SOURCES})
 target_include_directories({{ executable_name }} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(AFF3CT_ROOT)

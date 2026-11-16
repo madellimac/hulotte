@@ -58,7 +58,7 @@ ctest --test-dir build --output-on-failure
 ./build/my_pipeline
 ```
 
-The pipeline is defined in `src/main.cpp`. The custom module and comparator are implemented in `src/PassThrough.hpp`, `src/PassThrough.cpp`, `src/Comparator.hpp`, and `src/Comparator.cpp`; edit these files to experiment.
+The pipeline is defined in `src/main.cpp`. The custom module and comparator are implemented in `src/PassThrough.hpp`, `src/PassThrough.cpp`, `src/Comparator.hpp`, and `src/Comparator.cpp`; edit these files to experiment. CMake compiles every `.cpp` file directly under `src/`, so these example modules can be deleted once `main.cpp` no longer uses them (re-run `cmake -S . -B build` after adding or removing a file).
 
 ## Add a custom StreamPU module
 
@@ -95,7 +95,7 @@ python3 hulotte.py module list
 python3 hulotte.py module add "$HOME/projects/my_pipeline" --type aff3ct --name Channel_AWGN_LLR
 ```
 
-The command prints the include, the instantiation, and the tasks and sockets to bind (`module["task::socket"]`). It writes no file and does not modify `main.cpp`. The catalog covers `Source_random`, `Relayer` and `Sink_NO` (StreamPU), and from AFF3CT: `Source_random_fast`, `CRC_polynomial`, the repetition codec (`Encoder_repetition_sys`, `Decoder_repetition_std`), the polar codec (`Encoder_polar`, `Decoder_polar_SC_naive`, `Decoder_polar_SCL_naive`, `Decoder_polar_SCL_naive_CA`), `Modem_BPSK`, `Channel_AWGN_LLR`, the quantizers `Quantizer_pow2_fast` and `Quantizer_pow2` (with saturation, for hardware LLR formats), and the error counter `Monitor_BFER`. The catalog entries of the polar codec explain how to build the frozen bits. The catalog entries are JSON files under `catalog/`.
+The command prints the include, the instantiation, and the tasks and sockets to bind (`module["task::socket"]`). It writes no file and does not modify `main.cpp`. The catalog covers `Source_random`, `Relayer` and `Sink_NO` (StreamPU), and from AFF3CT: `Source_random_fast`, `CRC_polynomial`, the repetition codec (`Encoder_repetition_sys`, `Decoder_repetition_std`), the hard decision of an uncoded link (`Decoder_NO`), the polar codec (`Encoder_polar`, `Decoder_polar_SC_naive`, `Decoder_polar_SCL_naive`, `Decoder_polar_SCL_naive_CA`), `Modem_BPSK`, `Channel_AWGN_LLR`, the quantizers `Quantizer_pow2_fast` and `Quantizer_pow2` (with saturation, for hardware LLR formats), and the error counter `Monitor_BFER`. The catalog entries of the polar codec explain how to build the frozen bits. The catalog entries are JSON files under `catalog/`.
 
 To build a project with AFF3CT modules, install AFF3CT and configure with its root instead of the StreamPU one:
 

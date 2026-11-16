@@ -322,6 +322,28 @@
         "After the run: get_n_analyzed_fra(), get_n_fe(), get_n_be(), get_fer() and get_ber(); reset() before the next SNR point.",
         "Stop the simulation loop when fe_limit_achieved() is true; an optional third argument max_n_frames also bounds the frame count (frame_limit_achieved())."
       ]
+    },
+    {
+      "id": "Decoder_NO",
+      "summary": "Hard decision on LLRs without decoding; gives the BER of an uncoded link.",
+      "class": "Decoder_NO",
+      "template_arguments": "int32_t, float",
+      "arguments": [
+        {"name": "K", "type": "int", "example": "N", "description": "Number of LLRs and of decided bits per frame."}
+      ],
+      "tasks": [
+        {
+          "name": "decode_siho",
+          "sockets": [
+            {"name": "Y_N", "direction": "in", "type": "float", "size": "K", "description": "Input LLRs (a positive LLR favors bit 0)."},
+            {"name": "CWD", "direction": "out", "type": "int8_t", "size": "1", "description": "Codeword detection status (unused)."},
+            {"name": "V_K", "direction": "out", "type": "int32_t", "size": "K", "description": "Decided bits: 1 for a negative LLR, 0 otherwise."}
+          ]
+        }
+      ],
+      "notes": [
+        "Place it after the demodulator to measure an uncoded BPSK link: its BER is Q(sqrt(2 Eb/N0)), the reference curve of any coded scheme."
+      ]
     }
   ]
 }
