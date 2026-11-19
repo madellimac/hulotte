@@ -11,6 +11,13 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+# On x86-64, MIPP (inside AFF3CT) only gets SSE2 without -march=native and lacks some operations.
+# Keep the same instruction set as the dependencies installed by `hulotte deps install`.
+option(HULOTTE_NATIVE_ARCH "Compile for the instruction set of the build machine on x86-64" ON)
+if(HULOTTE_NATIVE_ARCH AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    add_compile_options(-march=native)
+endif()
+
 set(STREAMPU_ROOT "$ENV{STREAMPU_ROOT}" CACHE PATH "Path to the StreamPU source and build directories")
 set(AFF3CT_ROOT "$ENV{AFF3CT_ROOT}" CACHE PATH "Path to the AFF3CT source and build directories; its embedded StreamPU replaces STREAMPU_ROOT")
 if(NOT STREAMPU_ROOT AND NOT AFF3CT_ROOT)

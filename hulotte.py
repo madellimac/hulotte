@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -623,6 +624,22 @@ def install_checkout(
     return root
 
 
+def native_arch_arguments() -> list:
+    """CMake arguments compiling a dependency for the instruction set of the build machine.
+
+    Without -march=native, x86-64 compilers target SSE2 only, where MIPP (used by AFF3CT) lacks some
+    operations such as the 32-bit integer multiplication: AFF3CT modules then fail at run time with
+    "mipp::... (SSE2) is undefined". ARM has NEON by default and needs nothing. A -march already present
+    in CXXFLAGS is left as it is.
+    """
+    if platform.machine().lower() not in {"x86_64", "amd64"}:
+        return []
+    cxx_flags = os.environ.get("CXXFLAGS", "").strip()
+    if "-march=" in cxx_flags:
+        return []
+    return [f"-DCMAKE_CXX_FLAGS={' '.join(filter(None, [cxx_flags, '-march=native']))}"]
+
+
 def install_stream_pu(repository_root: Path, dry_run: bool = False) -> Path:
     return install_checkout(
         "StreamPU", stream_pu_path(repository_root), STREAMPU_URL, STREAMPU_REVISION, (),
@@ -631,6 +648,7 @@ def install_stream_pu(repository_root: Path, dry_run: bool = False) -> Path:
             "-DSPU_COMPILE_STATIC_LIB=ON",
             "-DSPU_COMPILE_SHARED_LIB=OFF",
             "-DSPU_TESTS=OFF",
+            *native_arch_arguments(),
         ],
         stream_pu_is_built, "STREAMPU_ROOT", dry_run,
     )
@@ -645,6 +663,7 @@ def install_aff3ct(repository_root: Path, dry_run: bool = False) -> Path:
             "-DAFF3CT_COMPILE_STATIC_LIB=ON",
             "-DAFF3CT_COMPILE_SHARED_LIB=OFF",
             "-DSPU_TESTS=OFF",
+            *native_arch_arguments(),
         ],
         aff3ct_is_built, "AFF3CT_ROOT", dry_run,
         jobs=min(os.cpu_count() or 1, AFF3CT_MAX_BUILD_JOBS),

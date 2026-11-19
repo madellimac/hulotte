@@ -316,6 +316,20 @@ class NewProjectCliTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, r"aff3ct\.json.*'A' needs at least one task"):
                 isolated["load_catalog"]("aff3ct")
 
+    def test_dependencies_are_compiled_for_the_native_instruction_set_on_x86_64_only(self):
+        namespace = runpy.run_path(str(CLI_PATH))
+        arguments = namespace["native_arch_arguments"]
+        module_platform = arguments.__globals__["platform"]
+        with patch.object(module_platform, "machine", return_value="x86_64"):
+            with patch.dict(os.environ, {"CXXFLAGS": ""}):
+                self.assertEqual(arguments(), ["-DCMAKE_CXX_FLAGS=-march=native"])
+            with patch.dict(os.environ, {"CXXFLAGS": "-O2"}):
+                self.assertEqual(arguments(), ["-DCMAKE_CXX_FLAGS=-O2 -march=native"])
+            with patch.dict(os.environ, {"CXXFLAGS": "-march=haswell"}):
+                self.assertEqual(arguments(), [])
+        with patch.object(module_platform, "machine", return_value="arm64"):
+            self.assertEqual(arguments(), [])
+
     def test_generated_cmake_selects_aff3ct_over_streampu_and_requires_one_of_them(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             project_dir = Path(temporary_directory) / "dual"
@@ -339,6 +353,9 @@ class NewProjectCliTests(unittest.TestCase):
             self.assertIn("CMAKE_CONFIGURE_DEPENDS", cmake)
             self.assertIn('MATCHES "#include[ \\t]*[<\\"]aff3ct\\\\.hpp")', cmake)
             self.assertLess(cmake.index("aff3ct\\\\.hpp"), cmake.index("if(AFF3CT_ROOT)"))
+            self.assertIn("option(HULOTTE_NATIVE_ARCH", cmake)
+            self.assertIn("add_compile_options(-march=native)", cmake)
+            self.assertLess(cmake.index("add_compile_options(-march=native)"), cmake.index("add_executable("))
 
     @unittest.skipIf(shutil.which("cmake") is None, "CMake is not installed")
     def test_configuring_aff3ct_graph_without_aff3ct_root_fails_with_clear_message(self):
