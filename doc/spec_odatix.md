@@ -1,6 +1,7 @@
 # Spec : intégration d'Odatix dans hulotte
 
-État : **validée dans ses grandes lignes par Camille** (2026-11-19). Rien n'est implémenté.
+État : **validée dans ses grandes lignes par Camille** (2026-11-19), puis mise à jour après un premier essai réel
+d'Odatix 4.0.0 avec Vivado 2023.1 sur d7010‑cl (2026-11-19, voir « Essai réel »). Rien n'est implémenté.
 
 ## Décisions
 
@@ -9,6 +10,9 @@
 - [x] D3. Enveloppe registrée des entrées‑sorties (`--wrap-io`) activée par défaut.
 - [x] D4. Témoin de vérification : **l'empreinte est écrite par le test lui‑même** (`check_hw`) quand il passe, grâce à une méthode de l'adaptateur Verilator. `synth run` refuse de synthétiser un RTL modifié depuis la vérification, sauf avec `--force`. Pas de commande `synth verify`.
 - [x] D5. Pour le concours, le classement combinera cycles et Fmax ou surface : la phase 2 (rapport) est prioritaire.
+- [x] D6. `synth run --synth-only` arrête Odatix après la synthèse (`--until synthesis`), sans placement-routage (Camille, 2026-11-19).
+- [x] D7. Le rapport affiche une Fmax estimée depuis une synthèse à fréquence fixe, marquée « estimée », quand `fmax` n'a pas été lancé (Camille, 2026-11-19).
+- [x] D8. Version minimale d'Odatix : 4.0.0 (Camille, 2026-11-19).
 
 ## Objectif
 
@@ -16,7 +20,7 @@ Depuis un projet hulotte, synthétiser avec Odatix un bloc `src/hw/<Bloc>.sv` **
 
 ## Principes
 
-- Aucun code d'Odatix n'est copié dans hulotte, qui écrit des fichiers de configuration et appelle la commande `odatix`. Odatix (GPL‑3.0) reste une dépendance optionnelle (`pip install odatix`, version minimale fixée dans `requirements.txt`) ; `hulotte doctor` vérifie sa présence et sa version.
+- Aucun code d'Odatix n'est copié dans hulotte, qui écrit des fichiers de configuration et appelle la commande `odatix`. Odatix (GPL‑3.0) reste une dépendance optionnelle (`pip install odatix`, version 4.0.0 au minimum, D8) ; `hulotte doctor` vérifie sa présence et sa version.
 - La vérification peut se faire sur une machine (le Mac) et la synthèse sur une autre (un serveur avec Vivado) : l'empreinte est un fichier commité avec le projet. On vérifie, on commite, puis sur le serveur `git pull` et `synth run`.
 - Tout ce qui manque se corrige dans hulotte. `istc_challenge_2027` sert de premier exemple.
 
@@ -47,7 +51,7 @@ hulotte synth add <projet> --name Hamming_decoder_hw \
 ```
 synth/
   odatix.yml                                  chemins par défaut, default_tool: vivado
-  synth_settings.yml                          architectures: [Hamming_decoder_hw/verified], frequencies: list [100]
+  synth_settings.yml                          architectures: [Hamming_decoder_hw/verified]
   fmax_settings.yml                           architectures: [Hamming_decoder_hw/verified]
   odatix_userconfig/
     architectures/Hamming_decoder_hw/
@@ -69,12 +73,20 @@ top_level_file: "Hamming_decoder_hw_synth_top.sv"   # ou Hamming_decoder_hw.sv a
 top_level_module: "Hamming_decoder_hw_synth_top"
 clock_signal: "clk"
 reset_signal: "reset"
-reset_active_low: No
 use_parameters: Yes
 start_delimiter: "#("
 stop_delimiter: ") ("
 param_target_file: "Hamming_decoder_hw_synth_top.sv"
+fixed_freq_synthesis:
+  list: [100]                  # fréquences par défaut de synth run, en MHz
+fmax_synthesis:
+  lower_bound: 50              # bornes de la recherche de Fmax, en MHz
+  upper_bound: 500
 ```
+
+Toutes ces clés sont lues par Odatix 4.0.0 (vérifié dans son code). `reset_active_low` n'est lu que par la
+simulation d'Odatix : hulotte ne l'écrit pas. Odatix copie tout le dossier `rtl_path` dans son dossier de
+travail avant d'y remplacer les paramètres : `src/hw` reste intact.
 
 Les délimiteurs correspondent exactement à l'en‑tête que génère `templates/verilator` (`module X #(` … `) (`). Un test de hulotte vérifie qu'ils n'apparaissent qu'une fois : si quelqu'un modifie l'en‑tête à la main, le remplacement d'Odatix échoue.
 
@@ -145,18 +157,25 @@ Le témoin est déclaratif : il prouve que ce RTL, avec ces paramètres, a pass�
 
 ```sh
 hulotte synth run <projet> --name Hamming_decoder_hw \
-        [--fmax | --freq 100 [--freq 200 ...]] [--target ...] [-j N] [--force]
+        [--fmax | --freq 100 [--freq 200 ...]] [--synth-only] [--target ...] [-j N] [--force]
 ```
 
 - Contrôle du témoin (ci‑dessus), puis contrôle d'Odatix (`odatix` dans le PATH, version minimale).
-- Lance, dans `synth/`, la commande Odatix correspondante, par exemple :
+- Lance, dans `synth/`, la commande Odatix correspondante (options confirmées sur Odatix 4.0.0) :
   ```sh
-  odatix fmax  -c odatix.yml -i fmax_settings.yml  -a Hamming_decoder_hw/verified -t vivado -y -j N
-  odatix synth -c odatix.yml -i synth_settings.yml -a Hamming_decoder_hw/verified -t vivado -y -j N --at 100
+  odatix fmax  -c odatix.yml -i fmax_settings.yml  -a Hamming_decoder_hw/verified -t vivado --target xc7a100t-csg324-1 -y -E -Q -j N
+  odatix synth -c odatix.yml -i synth_settings.yml -a Hamming_decoder_hw/verified -t vivado --target xc7a100t-csg324-1 -y -E -Q -j N --at 100
   ```
   La commande exacte est affichée avant le lancement, pour pouvoir la relancer à la main.
-- Odatix tourne au premier plan, sa sortie est transmise telle quelle ; Ctrl‑C l'interrompt. Pour le suivi en arrière‑plan, on renvoie aux outils d'Odatix (`odatix monitor`, `ps`, `stop`) sans les refaire.
-- Les options exactes (`-c`, `-i`, `-y`, `--at`) sont à confirmer avec la version d'Odatix installée : la documentation est incohérente par endroits.
+- `-y` évite la question de confirmation, `-E` fait attendre Odatix jusqu'à la fin des jobs puis rendre la main
+  avec un code de sortie. Sans terminal, Odatix signale qu'il ne peut pas afficher son moniteur et attend (essai
+  du 2026-11-19, code de sortie 0).
+- Odatix confie les jobs à une **session** (un démon) : Ctrl‑C arrête l'attente, **pas les jobs**, qui continuent.
+  hulotte le dit avant le lancement et renvoie à `odatix ps` et `odatix stop` sans les refaire.
+- Par défaut, le flow `standard` de Vivado enchaîne `elaboration`, `synthesis` et `pnr` (placement et routage).
+  L'option `--synth-only` de hulotte passe `--until synthesis` à Odatix (D6).
+- Ordre de grandeur : environ 4 minutes pour un compteur 8 bits à une fréquence, dont l'essentiel est le
+  démarrage de Vivado. Une recherche de Fmax en lance plusieurs.
 
 ## Phase 2 : rapport cycles et Fmax (prioritaire, D5)
 
@@ -167,7 +186,26 @@ hulotte synth run <projet> --name Hamming_decoder_hw \
 
   avec débit = Fmax ÷ intervalle, et latence en ns = cycles ÷ Fmax.
 - Le même rapport en YAML (`synth/report.yml`), pour le classement du concours.
-- **Bloquant** : la documentation ne donne ni le nom ni le format des fichiers de résultats de `odatix synth` et `odatix fmax` (seulement `results/dse/<campagne>.yml`). Le premier essai réel (point ouvert 3) répondra à la question.
+
+### Où lire les résultats d'Odatix (essai réel)
+
+- Un seul fichier par outil : `synth/results/results_vivado.yml` (`schema: 2`), complété à chaque run.
+- Une entrée par job **et par étape** du flow. `meta` identifie l'entrée : `type` (`custom_freq_synthesis`
+  pour `synth`), `target`, `architecture`, `configuration`, `tool`, `flow`, `frequency`, `step`
+  (`elaboration`, `synthesis`, `pnr`), `_last_step`, `timestamp`.
+- `metrics` : `LUT_count`, `LUT_percent`, `Reg_count`, `Reg_percent`, `BRAM_count`, `DSP_count`,
+  `Worst_Slack` (ns), `Static_Power`, `Dynamic_Power`, `Total_Power` (W), et après élaboration le nombre
+  d'éléments RTL (`RTL_Reg_count`, `RTL_Arith_count`…). Les unités sont dans `units`.
+- hulotte prend l'entrée de la dernière étape faite (`_last_step`, ou à défaut `pnr`, puis `synthesis`). Il
+  n'analyse pas les rapports bruts de Vivado, qui restent dans
+  `synth/work/custom_freq_synthesis/vivado/<cible>/<Bloc>/<config>/<f>MHz/report/`.
+- Mesures de l'essai (compteur 8 bits, 100 MHz, `xc7a100t-csg324-1`) : après `pnr`, 9 LUT, 8 registres,
+  `Worst_Slack` 7,792 ns, 0,094 W.
+- **Sans `odatix fmax`**, une Fmax estimée se déduit d'une synthèse à fréquence fixe :
+  Fmax ≈ 1000 / (1000 / f − Worst_Slack) MHz, soit environ 450 MHz pour l'essai. Le rapport l'affiche en
+  la marquant « estimée » (D7) ; une Fmax mesurée par `odatix fmax` la remplace quand elle existe.
+- **À confirmer** : le `type` et les champs des entrées écrites par `odatix fmax` (pas encore essayé, à la
+  demande de Camille).
 
 ## Phase 3 : exploration de paramètres (plus tard, à discuter)
 
@@ -198,10 +236,20 @@ Lancer Odatix à distance (ssh), la synthèse ASIC, Yosys avec nextpnr (pas d'ex
 
 ## Points ouverts
 
-1. Nom et format des résultats d'Odatix pour `synth` et `fmax` (nécessaires à la phase 2).
-2. Comportement réel de Vivado lancé par Odatix : synthèse seule, ou placement et routage ? Cela détermine si l'enveloppe registrée suffit.
-3. Premier essai réel sur d7010‑cl (à confirmer : Vivado et sa version, Odatix installé ?).
-4. Options exactes de la ligne de commande d'Odatix dans la version installée.
+1. Format des résultats de `odatix fmax` : `odatix synth` est réglé (voir phase 2), `fmax` n'a pas été essayé.
+2. Le placement-routage est fait par défaut, avec de vraies broches : un bloc dont l'enveloppe dépasse les 210
+   broches du CSG324 échouera au `pnr`. L'exemple Hamming en utilise une cinquantaine. Pour les gros blocs :
+   `--synth-only` (D6), ou réduction des broches (hors périmètre pour l'instant).
+
+Réglés par l'essai du 2026-11-19 : nom et format des résultats de `synth`, synthèse et placement-routage,
+présence de Vivado 2023.1 et d'Odatix 4.0.0 sur d7010‑cl, options de la ligne de commande. Réglés par Camille
+le même jour : `--synth-only` (D6), Fmax estimée (D7), version minimale (D8).
+
+## Essai réel (2026-11-19, d7010‑cl)
+
+Odatix 4.0.0 dans le venv de hulotte, Vivado 2023.1. Espace créé par `odatix init -y --examples`, puis
+`odatix synth -t vivado -a Example_Counter_sv/08bits --at 100 -y -E -j 1 -Q` : un job réussi en 3 min 44 s,
+flow `standard` complet (élaboration, synthèse, placement et routage).
 
 ## Références (documentation d'Odatix lue le 2026-11-19)
 
