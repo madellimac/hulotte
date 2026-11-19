@@ -74,7 +74,8 @@
         }
       ],
       "notes": [
-        "Bind the CP socket to the same float array as the channel, for example: std::vector<float> sigma(1, 0.5f); then modem_bpsk[\"demodulate::CP\"] = sigma.data();"
+        "Bind the CP socket to the same float array as the channel, for example: std::vector<float> sigma(1, 0.5f); then modem_bpsk[\"demodulate::CP\"] = sigma.data();",
+        "CP holds one value per frame: with set_n_frames(F), the array needs F values (std::vector<float> sigma(F, 0.5f)), otherwise frames 1 to F-1 read past its end."
       ]
     },
     {
@@ -98,6 +99,7 @@
       "notes": [
         "For real BPSK symbols of amplitude 1, sigma = sqrt(1 / (2 * Es/N0)) with Es/N0 as a linear ratio.",
         "Bind the CP socket to a float array holding sigma, for example: std::vector<float> sigma(1, 0.5f); then channel_awgn_llr[\"add_noise::CP\"] = sigma.data();",
+        "CP holds one value per frame: with set_n_frames(F), the array needs F values (std::vector<float> sigma(F, 0.5f)), otherwise frames 1 to F-1 read past its end.",
         "The constructor also accepts a Gaussian generator implementation and a seed after N."
       ]
     },

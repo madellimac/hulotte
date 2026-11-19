@@ -117,7 +117,7 @@ cmake -S . -B build -DAFF3CT_ROOT=/path/to/hulotte/dependencies/aff3ct
 
 When `src/main.cpp` includes `aff3ct.hpp` and `AFF3CT_ROOT` is not set, CMake stops at configuration with an explicit message. Only `main.cpp` is checked; an AFF3CT include in `src/custom/` alone is not detected.
 
-AFF3CT noise is passed through the `CP` socket of the channel and the demodulator: bind both to the same one-element `float` array holding the noise standard deviation (sigma). Projects created before this feature have no AFF3CT support in their `CMakeLists.txt`; the assistant says so rather than generating a snippet that cannot build.
+AFF3CT noise is passed through the `CP` socket of the channel and the demodulator: bind both to the same `float` array holding the noise standard deviation (sigma). The socket holds one value per frame: one element for one frame per execution, and `F` elements, all set to sigma, after `set_n_frames(F)`. Projects created before this feature have no AFF3CT support in their `CMakeLists.txt`; the assistant says so rather than generating a snippet that cannot build.
 
 ## Wrap C code behind a fixed API
 

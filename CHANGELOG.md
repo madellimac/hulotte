@@ -13,6 +13,7 @@
 - Custom C++ modules accept `--in-type` and `--out-type` (integer types, `float`, `double`) and a second constructor `(n_in, n_out)` for different input and output frame sizes.
 - Fixed: a custom C++ module processed only the first frame of a StreamPU wave when several frames were set with `set_n_frames()`.
 - Names follow the style of AFF3CT and StreamPU: the example module of generated projects is `Pass_through` (`src/Pass_through.hpp`, `src/Pass_through.cpp`), and the documentation uses class names such as `Filter_block`.
+- The catalog and the README state that the `CP` (sigma) socket of the AFF3CT channel and demodulator holds one value per frame, so a wave of `F` frames needs `F` values.
 - Fixed: a Verilator adapter processed only the first frame when a task carried several frames.
 - Fixed: Verilator adapters failed to link with Verilator 5.018 (undefined `sc_time_stamp()`).
 
