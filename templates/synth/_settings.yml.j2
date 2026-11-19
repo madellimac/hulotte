@@ -1,0 +1,22 @@
+# Odatix architecture of the Verilator block {{ block }}, written by `hulotte synth add`.
+# Odatix copies rtl_path (with its sub-directories) into each job and replaces the text between
+# the delimiters of param_target_file with a configuration file of this directory (verified.txt).
+
+rtl_path: "../src/hw"  # relative to synth/, where Odatix runs
+top_level_file: "{{ top_file }}"
+top_level_module: "{{ top_module }}"
+
+clock_signal: "clk"
+reset_signal: "reset"
+
+use_parameters: Yes
+param_target_file: "{{ top_file }}"
+start_delimiter: "module {{ top_module }} #("
+stop_delimiter: ") ("
+
+# Frequencies in MHz: default list of `synth run`, and bounds of the Fmax search.
+fixed_freq_synthesis:
+  list: [{{ frequency }}]
+fmax_synthesis:
+  lower_bound: {{ fmax_lower }}
+  upper_bound: {{ fmax_upper }}

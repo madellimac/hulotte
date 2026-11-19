@@ -1,7 +1,8 @@
 # Spec : intégration d'Odatix dans hulotte
 
 État : **validée dans ses grandes lignes par Camille** (2026-11-19), puis mise à jour après un premier essai réel
-d'Odatix 4.0.0 avec Vivado 2023.1 sur d7010‑cl (2026-11-19, voir « Essai réel »). Rien n'est implémenté.
+d'Odatix 4.0.0 avec Vivado 2023.1 sur d7010‑cl (2026-11-19, voir « Essai réel »). **Phase 1 implémentée**
+(`synth add`, 2026-11-19) ; phases 1 bis, 1 ter et 2 à faire.
 
 ## Décisions
 
@@ -58,9 +59,8 @@ synth/
       _settings.yml
       verified.txt                            configuration vérifiée
     targets/target_vivado.yml                 constraint_file: constraints.xdc, targets: [xc7a100t-csg324-1]
-  verified/                                   empreintes écrites par les tests (commitées)
   .gitignore                                  work/, results/
-src/hw/Hamming_decoder_hw_synth_top.sv        enveloppe registrée (D3)
+src/hw/synth/Hamming_decoder_hw_synth_top.sv  enveloppe registrée (D3)
 ```
 
 ### `_settings.yml`
@@ -69,14 +69,14 @@ Champs tirés de la documentation de référence d'Odatix (architecture settings
 
 ```yaml
 rtl_path: "../src/hw"
-top_level_file: "Hamming_decoder_hw_synth_top.sv"   # ou Hamming_decoder_hw.sv avec --no-wrap-io
+top_level_file: "synth/Hamming_decoder_hw_synth_top.sv"   # ou Hamming_decoder_hw.sv avec --no-wrap-io
 top_level_module: "Hamming_decoder_hw_synth_top"
 clock_signal: "clk"
 reset_signal: "reset"
 use_parameters: Yes
-start_delimiter: "#("
+start_delimiter: "module Hamming_decoder_hw_synth_top #("
 stop_delimiter: ") ("
-param_target_file: "Hamming_decoder_hw_synth_top.sv"
+param_target_file: "synth/Hamming_decoder_hw_synth_top.sv"
 fixed_freq_synthesis:
   list: [100]                  # fréquences par défaut de synth run, en MHz
 fmax_synthesis:
@@ -88,7 +88,7 @@ Toutes ces clés sont lues par Odatix 4.0.0 (vérifié dans son code). `reset_ac
 simulation d'Odatix : hulotte ne l'écrit pas. Odatix copie tout le dossier `rtl_path` dans son dossier de
 travail avant d'y remplacer les paramètres : `src/hw` reste intact.
 
-Les délimiteurs correspondent exactement à l'en‑tête que génère `templates/verilator` (`module X #(` … `) (`). Un test de hulotte vérifie qu'ils n'apparaissent qu'une fois : si quelqu'un modifie l'en‑tête à la main, le remplacement d'Odatix échoue.
+Le délimiteur de début est l'en‑tête complet `module <Top> #(`, et non `#(` seul : l'enveloppe instancie le bloc avec `#(`, qui apparaîtrait deux fois. `synth add` vérifie que l'en‑tête apparaît une seule fois, dans le bloc et dans l'enveloppe générée ; un test le vérifie avec `odatix replace`, la commande de remplacement d'Odatix. Un premier essai a montré le piège : un commentaire qui cite l'en‑tête suffit à faire remplacer au mauvais endroit.
 
 ### `verified.txt`
 
@@ -110,14 +110,16 @@ La documentation d'Odatix ne dit rien d'une synthèse *out of context*, ni des r
 - sur FPGA, les chemins vers les broches faussent la Fmax ;
 - un bloc à larges ports (LANES × WIDTH) dépasse vite le nombre de broches. Le CSG324 en a 210, alors que l'exemple Hamming en utilise une cinquantaine.
 
-Hulotte génère donc `src/hw/<Bloc>_synth_top.sv`, qui :
+Hulotte génère donc `src/hw/synth/<Bloc>_synth_top.sv`, qui :
 
 - place un registre sur chaque entrée et chaque sortie, ce qui garde la mesure de Fmax de registre à registre, celle du cœur ;
 - reprend les mêmes paramètres et le même en‑tête `#( … ) (`, pour que le remplacement d'Odatix fonctionne.
 
 Dans un premier temps, le nombre de broches n'est pas réduit (pas de sérialisation des ports) : c'est un point à revoir pour les gros blocs.
 
-Ce fichier ne sert qu'à la synthèse. Verilator ne le compile pas : il faut exclure `*_synth_top.sv` du glob CMake de `src/hw`.
+Ce fichier ne sert qu'à la synthèse. Il est dans un sous‑dossier, `src/hw/synth/`, que le glob CMake de `src/hw` (non récursif) ne voit pas : Verilator ne le compile pas, et les projets existants n'ont pas à changer leur CMake. Odatix, lui, copie `rtl_path` avec ses sous‑dossiers et Vivado lit les `.sv` récursivement (vérifié dans le code d'Odatix 4.0.0).
+
+L'enveloppe enregistre aussi `in_ready` et `out_ready` : c'est un banc de mesure, pas une enveloppe fonctionnelle du flux.
 
 ## Phase 1 bis : témoin de vérification (D4)
 
@@ -218,7 +220,7 @@ hulotte synth run <projet> --name Hamming_decoder_hw \
 - `hulotte.py` : sous‑commande `synth` avec `add`, `status`, `run` et `report` ; contrôle d'Odatix dans `doctor`.
 - `templates/synth/` : `_settings.yml.j2`, `verified.txt.j2`, `target_vivado.yml.j2`, `synth_settings.yml.j2`, `fmax_settings.yml.j2`, `odatix.yml.j2`, `synth_top.sv.j2`, `preview.txt.j2`.
 - `templates/verilator/` : méthode `mark_verified` de l'adaptateur.
-- `templates/project/CMakeLists.txt.j2` : génération de `<Bloc>_rtl_hash.hpp`, définition de `HULOTTE_PROJECT_DIR`, exclusion de `*_synth_top.sv` des sources Verilator.
+- `templates/project/CMakeLists.txt.j2` : génération de `<Bloc>_rtl_hash.hpp` et définition de `HULOTTE_PROJECT_DIR` (phase 1 bis). L'enveloppe n'a pas besoin d'y être exclue (`src/hw/synth/`).
 - `requirements.txt` : Odatix en dépendance optionnelle, version minimale.
 - `tests/` :
   - génération des fichiers, valeurs lues dans l'adaptateur, unicité des délimiteurs ;

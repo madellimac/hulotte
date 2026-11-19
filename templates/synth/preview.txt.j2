@@ -1,0 +1,11 @@
+Odatix workspace of {{ block }} in {{ project_dir }}/synth:
+{%- for path, state in files %}
+    {{ path }}{{ "  (kept, already exists)" if state == "kept" else ("  (overwritten)" if state == "overwritten" else "") }}
+{%- endfor %}
+
+Tool and target: {{ tool }}, {{ target }}
+Top level: {{ top_module }} ({{ "registered inputs and outputs" if wrap_io else "the block itself, without registers on its ports" }})
+Checked configuration (verified.txt), read from src/custom/{{ block }}.hpp:
+    IN_WIDTH = {{ in_width }}, IN_LANES = {{ in_lanes }}, OUT_WIDTH = {{ out_width }}, OUT_LANES = {{ out_lanes }}
+
+Commit synth/ (except synth/work and synth/results, ignored by synth/.gitignore).

@@ -17,6 +17,7 @@ Version **0.1.0** is an initial experimental source release. See [CHANGELOG.md](
 - It can also wrap C code behind a fixed three-function API (`--type cfunction`).
 - CMake automatically discovers added module sources under `src/custom/` on the next build.
 - CMake enables Verilator only when a block exists under `src/hw/`.
+- `hulotte synth add <project> --name <Block>` writes the Odatix workspace of a Verilator block under `synth/`, to synthesize it in the configuration checked by the simulation (first step of the Odatix integration; `synth run` and `synth report` are not available yet).
 
 - `hulotte module list` shows the catalog of existing StreamPU and AFF3CT modules; `hulotte module add <project> --type streampu|aff3ct --name <id>` prints how to use one (include, instantiation, tasks and sockets) without writing files.
 
@@ -205,20 +206,44 @@ gtkwave traces/filter_block.vcd
 
 Viewers are optional and are not launched or installed by Hulotte. With remote SSH, open the file locally or use a graphical session on the remote host. Previously generated wrappers are not automatically updated; preserve your edited RTL and port the trace changes explicitly if needed.
 
+## Synthesize a hardware block with Odatix
+
+[Odatix](https://github.com/jsaussereau/Odatix) (4.0.0 or later, `pip install odatix`, optional) runs FPGA synthesis and place and route over a set of designs. `synth add` prepares a Verilator block for it:
+
+```sh
+# Write synth/ and the synthesis wrapper of src/hw/Decoder_hw.sv.
+python3 hulotte.py synth add my_pipeline --name Decoder_hw
+```
+
+- The interface parameters (`IN_WIDTH`, `IN_LANES`, `OUT_WIDTH`, `OUT_LANES`) are read from the generated adapter `src/custom/Decoder_hw.hpp` and written to `synth/odatix_userconfig/architectures/Decoder_hw/verified.txt`, the configuration Odatix substitutes into the top-level file.
+- By default the block is synthesized inside `src/hw/synth/Decoder_hw_synth_top.sv`, which registers every input and output so that the measured timing is the one of the block, not of the paths to the pins. This wrapper is a measurement harness, not a functional stream wrapper. Verilator does not compile `src/hw/synth/`. Use `--no-wrap-io` to synthesize the block itself.
+- The default tool and target are Vivado and `xc7a100t-csg324-1` (`--tool`, `--target`).
+- Files shared by all blocks (`synth/odatix.yml`, run settings, target file) are kept when they exist; the files of the block are only overwritten with `--force`.
+- Odatix substitutes the parameters between `module <Top> #(` and `) (`: keep the module header as generated, and do not write these delimiters elsewhere in the file.
+
+Until `synth run` is available, run Odatix from `synth/` by hand, for instance:
+
+```sh
+cd my_pipeline/synth
+odatix synth -a Decoder_hw/verified --at 100 -y -E
+```
+
+Results are written to `synth/results/results_vivado.yml`. Commit `synth/`; `synth/work/` and `synth/results/` are ignored.
+
 ## Test the generator
 
 Run this command from the repository root:
 
 ```sh
 # Run the Hulotte generator tests.
-python3 -m unittest discover -s tests -p 'test_new_project_cli.py' -v
+python3 -m unittest discover -s tests -v
 ```
 
 Native integration tests are optional. Set `HULOTTE_TEST_STREAMPU_ROOT` when CMake and a built StreamPU tree are available. The additional RTL/VCD integration test requires Verilator:
 
 ```sh
 # Enable custom-module compilation and, if Verilator is installed, RTL/VCD checks.
-HULOTTE_TEST_STREAMPU_ROOT="$PWD/dependencies/streampu" python3 -m unittest discover -s tests -p 'test_new_project_cli.py' -v
+HULOTTE_TEST_STREAMPU_ROOT="$PWD/dependencies/streampu" python3 -m unittest discover -s tests -v
 ```
 
 ## Generator templates
@@ -229,6 +254,7 @@ HULOTTE_TEST_STREAMPU_ROOT="$PWD/dependencies/streampu" python3 -m unittest disc
 - `templates/custom/`: custom C++ modules and their integration preview.
 - `templates/verilator/`: SystemVerilog blocks, StreamPU adapters, and their integration preview.
 - `templates/cfunction/`: C API headers, example implementations, StreamPU adapters, and their integration preview.
+- `templates/synth/`: the Odatix workspace of a Verilator block, its synthesis wrapper, and the `synth add` preview.
 
 Templates use explicit rendering contexts and `StrictUndefined`: a missing variable causes an error rather than silently generating incomplete code. Templates are located relative to `hulotte.py`, not the current working directory. Generated projects do not need Python or Jinja2 to build and run.
 

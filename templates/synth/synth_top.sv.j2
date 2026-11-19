@@ -1,0 +1,76 @@
+// Synthesis wrapper of {{ block }}, written by `hulotte synth add`, for Odatix only: Verilator
+// does not compile src/hw/synth/ (the CMake glob of src/hw is not recursive).
+//
+// Every input and output of the block goes through a register, so that the timing measured by
+// the synthesis tool is register to register, the one of the block itself, and not the one of
+// the paths to the pins. This wrapper is a measurement harness: registering in_ready and
+// out_ready delays the handshake by one cycle, so it is NOT a functional stream wrapper.
+//
+// Odatix replaces the parameter list of this module with the configuration checked by the
+// simulation (synth/odatix_userconfig/architectures/{{ block }}/verified.txt). Its delimiters are
+// the module header and the closing parenthesis before the ports: keep them as they are, and
+// do not write them anywhere else in this file.
+module {{ top_module }} #(
+    parameter int IN_WIDTH  = {{ in_width }},
+    parameter int IN_LANES  = {{ in_lanes }},
+    parameter int OUT_WIDTH = {{ out_width }},
+    parameter int OUT_LANES = {{ out_lanes }}
+) (
+    input  logic                           clk,
+    input  logic                           reset,
+    input  logic [IN_LANES*IN_WIDTH-1:0]   in_data,
+    input  logic                           in_valid,
+    input  logic                           in_last,
+    output logic                           in_ready,
+    output logic [OUT_LANES*OUT_WIDTH-1:0] out_data,
+    output logic                           out_valid,
+    input  logic                           out_ready
+);
+
+    timeunit 1ns;
+    timeprecision 1ns;
+
+    logic [IN_LANES*IN_WIDTH-1:0]   in_data_q;
+    logic                           in_valid_q;
+    logic                           in_last_q;
+    logic                           out_ready_q;
+    logic                           in_ready_d;
+    logic [OUT_LANES*OUT_WIDTH-1:0] out_data_d;
+    logic                           out_valid_d;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            in_valid_q  <= 1'b0;
+            in_last_q   <= 1'b0;
+            out_ready_q <= 1'b0;
+            in_ready    <= 1'b0;
+            out_valid   <= 1'b0;
+        end else begin
+            in_valid_q  <= in_valid;
+            in_last_q   <= in_last;
+            out_ready_q <= out_ready;
+            in_ready    <= in_ready_d;
+            out_valid   <= out_valid_d;
+        end
+        in_data_q <= in_data;
+        out_data  <= out_data_d;
+    end
+
+    {{ block }} #(
+        .IN_WIDTH (IN_WIDTH),
+        .IN_LANES (IN_LANES),
+        .OUT_WIDTH(OUT_WIDTH),
+        .OUT_LANES(OUT_LANES)
+    ) core_inst (
+        .clk      (clk),
+        .reset    (reset),
+        .in_data  (in_data_q),
+        .in_valid (in_valid_q),
+        .in_last  (in_last_q),
+        .in_ready (in_ready_d),
+        .out_data (out_data_d),
+        .out_valid(out_valid_d),
+        .out_ready(out_ready_q)
+    );
+
+endmodule
