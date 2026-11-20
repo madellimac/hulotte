@@ -16,7 +16,7 @@ d'Odatix 4.0.0 avec Vivado 2023.1 sur d7010‑cl (2026-11-19, voir « Essai rée
 - [x] D8. Version minimale d'Odatix : 4.0.0 (Camille, 2026-11-19).
 - [x] D9. Les cycles sont enregistrés **par point de fonctionnement** (un Eb/N0, par exemple) : avec un critère d'arrêt, le nombre de cycles dépend du SNR. Le rapport affiche tous les points (Camille, 2026-11-20).
 - [x] D10. L'empreinte couvre **tous les `.sv` de `src/hw/`**, sous‑dossiers compris, sauf `src/hw/synth/` : modifier un fichier invalide la vérification de tous les blocs (Camille, 2026-11-20).
-- [x] D11. Une commande `hulotte update` régénérera les fichiers générés d'un projet existant (CMake, adaptateurs) ; spec à écrire (Camille, 2026-11-20).
+- [x] D11. La commande `hulotte update` régénère les fichiers générés d'un projet existant : `CMakeLists.txt`, adaptateurs Verilator et cfunction, avec un registre `.hulotte/generated.json` ; un fichier modifié à la main n'est réécrit qu'avec `--force` (copie `.orig`) (Camille, 2026-11-20 ; fait).
 
 ## Objectif
 

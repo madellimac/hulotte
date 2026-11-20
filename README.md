@@ -16,6 +16,7 @@ Version **0.1.0** is an initial experimental source release. See [CHANGELOG.md](
 - The same assistant can generate a StreamPU adapter and Ready/Valid SystemVerilog starter block for Verilator, with a configurable stream interface and cycle measurements.
 - It can also wrap C code behind a fixed three-function API (`--type cfunction`).
 - CMake automatically discovers added module sources under `src/custom/` on the next build.
+- `hulotte update <project>` brings an existing project to the current templates: it rewrites the files Hulotte owns (`CMakeLists.txt`, Verilator and cfunction adapters) and never touches the user's files.
 - CMake enables Verilator only when a block exists under `src/hw/`.
 - `hulotte synth add <project> --name <Block>` writes the Odatix workspace of a Verilator block under `synth/`, to synthesize it in the configuration checked by the simulation and `hulotte synth status` tells whether the RTL is still the one the simulation checked (`synth run` and `synth report` are not available yet).
 
@@ -205,6 +206,22 @@ gtkwave traces/filter_block.vcd
 ```
 
 Viewers are optional and are not launched or installed by Hulotte. With remote SSH, open the file locally or use a graphical session on the remote host. Previously generated wrappers are not automatically updated; preserve your edited RTL and port the trace changes explicitly if needed.
+
+## Update an existing project
+
+Hulotte copies its templates into a project when it creates it or adds a module. An improvement of Hulotte therefore does not reach existing projects until they are updated:
+
+```sh
+# List the files Hulotte owns and their state; exit with 1 if an update is available.
+python3 hulotte.py update my_pipeline --check
+# Show the diffs, ask for confirmation, then rewrite the files.
+python3 hulotte.py update my_pipeline
+```
+
+- Rewritten: `CMakeLists.txt` and the adapters `src/custom/<Module>.hpp/.cpp` of Verilator and cfunction modules. Their parameters are read back from the existing files: project and executable names, element types, widths, lanes and sign extension.
+- Never touched: `src/main.cpp`, `src/hw/*.sv`, custom C++ modules, the `*_api.h` and `*_impl.c` files of cfunction modules, `README.md`, the example modules and `synth/`.
+- `.hulotte/generated.json` records the hash of every file Hulotte wrote; commit it. A file changed by hand since it was generated is only rewritten with `--force`, and its previous contents are kept in `<file>.orig`. In a project older than this registry, every file is treated as unknown: its diff is shown and a `.orig` copy is kept.
+- After an update, configure again from an empty build directory.
 
 ## Synthesize a hardware block with Odatix
 
