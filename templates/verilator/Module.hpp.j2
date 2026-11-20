@@ -6,6 +6,7 @@
 #include <iosfwd>
 #include <memory>
 #include <string>
+#include <vector>
 
 class VerilatedContext;
 class VModel_{{ class_name }};
@@ -47,6 +48,18 @@ public:
     void reset_cycle_stats();
     void print_cycle_stats(std::ostream& stream) const;
 
+    // Store the current cycle counts under an operating condition chosen by the test, such as
+    // "Eb/N0 = 6.0 dB": the number of cycles may depend on it (early termination of a decoder).
+    // reset_cycle_stats() does not clear the stored points.
+    void record_cycle_point(const std::string& condition);
+
+    // Call it only when the test that checks this block passes. Writes
+    // synth/verified/{{ class_name }}.yml in the project: SHA-256 of the RTL sources simulated by
+    // Verilator (every .sv under src/hw except src/hw/synth), interface parameters, and the
+    // recorded cycle points (the current counts if none was recorded). `hulotte synth status`
+    // and `hulotte synth run` compare this file with the RTL. Commit it.
+    void mark_verified(const std::string& test_name) const;
+
     // Cycles without any transfer before the frame is declared stalled.
     void set_stall_limit(std::uint64_t cycles);
     std::uint64_t get_stall_limit() const;
@@ -61,6 +74,13 @@ private:
         void add(std::uint64_t value);
     };
 
+    struct Cycle_point
+    {
+        std::string condition;
+        Cycle_range latency;
+        Cycle_range interval;
+    };
+
     {{ class_name }}(int n_in, int n_out, bool create_task, const std::string& trace_path);
     void process_frames(const in_t* input, out_t* output, std::size_t n_frames);
     void evaluate();
@@ -70,6 +90,7 @@ private:
     std::uint64_t stall_limit = 100000;
     Cycle_range latency;
     Cycle_range interval;
+    std::vector<Cycle_point> cycle_points;
     std::shared_ptr<const std::string> trace_reservation;
     std::unique_ptr<VerilatedContext> context;
     std::unique_ptr<VModel_{{ class_name }}> model;

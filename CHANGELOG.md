@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Verilator adapters record the simulation check for synthesis: `record_cycle_point(condition)` stores the cycle counts of an operating condition (such as an Eb/N0), and `mark_verified(test_name)` writes `synth/verified/<Block>.yml` with the SHA-256 of the RTL, the interface parameters and the cycle points. Generated projects compute the RTL hash over every `.sv` under `src/hw/` except `src/hw/synth/` (`hulotte_rtl_hash.hpp`, re-configured when the RTL changes). `hulotte synth status` compares the RTL with these records.
 - `hulotte synth add` writes the Odatix workspace of a Verilator block under `synth/`: architecture settings, the checked interface configuration read from the adapter (`verified.txt`), Vivado target (`xc7a100t-csg324-1` by default), and a wrapper registering the inputs and outputs of the block (`src/hw/synth/<Block>_synth_top.sv`, ignored by Verilator; `--no-wrap-io` to skip it). First step of the Odatix integration described in `doc/spec_odatix.md`.
 - On x86-64, `hulotte deps install` compiles StreamPU and AFF3CT with `-march=native`, and generated projects add it too (CMake option `HULOTTE_NATIVE_ARCH`). Fixed: AFF3CT pipelines stopped with `mipp::mul<int32_t> (SSE2) is undefined!`, MIPP falling back to SSE2. An AFF3CT installed by an older Hulotte must be removed and reinstalled.
 - Generated projects build in `Release` by default when no build type is given.

@@ -2,6 +2,7 @@
 """Create readable C++ StreamPU projects and guide module creation."""
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -450,6 +451,96 @@ def plan_synth_add(project_dir: Path, block: str, tool: str = SYNTH_TOOLS[0], ta
     return files, preview
 
 
+def rtl_manifest(project_dir: Path) -> tuple[str, dict]:
+    """SHA-256 of the RTL sources, computed as the CMake of generated projects does for mark_verified().
+
+    Every .sv under src/hw except src/hw/synth, sorted by path; the manifest holds one
+    "<sha256>  <path>" line per file and the RTL hash is the SHA-256 of the manifest.
+    """
+    hw_dir = project_dir / "src/hw"
+    files = {}
+    if hw_dir.is_dir():
+        for path in hw_dir.rglob("*.sv"):
+            relative = path.relative_to(project_dir).as_posix()
+            if path.is_file() and not relative.startswith("src/hw/synth/"):
+                files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = "".join(f"{files[name]}  {name}\n" for name in sorted(files))
+    return hashlib.sha256(manifest.encode("utf-8")).hexdigest(), {name: files[name] for name in sorted(files)}
+
+
+def read_verified_record(path: Path) -> dict:
+    """Read a synth/verified/<Block>.yml file as written by mark_verified() (JSON values in YAML)."""
+    record, section = {"rtl_files": {}, "cycles": []}, None
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        try:
+            if line.startswith("  - ") and section == "cycles":
+                record["cycles"].append(json.loads(line[4:]))
+            elif line.startswith("  ") and section == "rtl_files":
+                name, digest = re.fullmatch(r'\s+("(?:[^"\\]|\\.)*"):\s*(".*")', line).groups()
+                record["rtl_files"][json.loads(name)] = json.loads(digest)
+            else:
+                key, value = line.split(":", 1)
+                section = key.strip()
+                if value.strip():
+                    record[section] = json.loads(value)
+        except (AttributeError, ValueError) as error:
+            raise ValueError(f"{path.name}, line {number}: unexpected content (written by mark_verified()?)") from error
+    for key in ("module", "rtl_sha256", "parameters"):
+        if key not in record:
+            raise ValueError(f"{path.name}: missing '{key}'")
+    return record
+
+
+def read_verified_txt(path: Path) -> dict:
+    """Interface parameters of a verified.txt configuration of the Odatix workspace."""
+    return {name: int(value) for name, value in
+            re.findall(r"parameter\s+(?:int\s+)?([A-Z_]+)\s*=\s*(\d+)", path.read_text(encoding="utf-8"))}
+
+
+def synth_status(project_dir: Path) -> tuple[list, bool]:
+    """State of each Verilator block of src/hw: verified, modified since the check, or never verified."""
+    project_dir = validate_project_directory(project_dir)
+    rtl_sha256, rtl_files = rtl_manifest(project_dir)
+    blocks = sorted(path.stem for path in (project_dir / "src/hw").glob("*.sv")) if (project_dir / "src/hw").is_dir() else []
+    verified_dir = project_dir / "synth/verified"
+    records = {path.stem: path for path in verified_dir.glob("*.yml")} if verified_dir.is_dir() else {}
+    lines, all_verified = [], True
+    width = max([len(name) for name in [*blocks, *records]] + [5])
+    for block in sorted(set(blocks) | set(records)):
+        if block not in records:
+            lines.append(f"{block:<{width}}  never verified")
+            all_verified = False
+            continue
+        record = read_verified_record(records[block])
+        details = f"{record.get('test', '?')}, {record.get('date', '?')}"
+        problems = []
+        if block not in blocks:
+            problems.append(f"src/hw/{block}.sv no longer exists")
+        if record["rtl_sha256"] != rtl_sha256:
+            recorded = record["rtl_files"]
+            changed = [name for name in sorted(set(recorded) | set(rtl_files)) if recorded.get(name) != rtl_files.get(name)]
+            problems.append("changed since the check: " + (", ".join(changed) if changed else "src/hw"))
+        verified_txt = project_dir / f"synth/odatix_userconfig/architectures/{block}/verified.txt"
+        if verified_txt.is_file() and read_verified_txt(verified_txt) != record["parameters"]:
+            problems.append(f"parameters of {verified_txt.relative_to(project_dir)} differ from the check "
+                            + ", ".join(f"{name}={value}" for name, value in record["parameters"].items()))
+        if problems:
+            lines.append(f"{block:<{width}}  MODIFIED        {details}; " + "; ".join(problems))
+            all_verified = False
+        else:
+            cycles = "; ".join(
+                f"{point.get('condition', '')}: latency {point.get('latency_min')}-{point.get('latency_max')}, "
+                f"interval {point.get('interval_min')}-{point.get('interval_max')}"
+                for point in record["cycles"][:3])
+            more = f" (+{len(record['cycles']) - 3} more)" if len(record["cycles"]) > 3 else ""
+            lines.append(f"{block:<{width}}  verified        {details}" + (f"; {cycles}{more}" if cycles else ""))
+    if not lines:
+        lines.append("No Verilator block under src/hw.")
+    return lines, all_verified
+
+
 def write_synth_files(project_dir: Path, files: dict[str, str]) -> list[Path]:
     project_dir = validate_project_directory(project_dir)
     output_paths = []
@@ -888,6 +979,9 @@ def main(argv=None) -> int:
                                   help="synthesize the block inside a wrapper that registers its inputs and outputs (default: on)")
     synth_add_parser.add_argument("--force", action="store_true", help="overwrite the files of this block if they exist")
     synth_add_parser.add_argument("--yes", action="store_true", help="create files without a confirmation prompt")
+    synth_status_parser = synth_subparsers.add_parser(
+        "status", help="compare the RTL of each Verilator block with the check recorded by mark_verified()")
+    synth_status_parser.add_argument("project_dir", type=Path, help="existing Hulotte project directory")
     deps_parser = subparsers.add_parser("deps", help="install or inspect native dependencies")
     deps_subparsers = deps_parser.add_subparsers(dest="deps_command", required=True)
     install_parser = deps_subparsers.add_parser("install", help="install StreamPU only or AFF3CT with its embedded StreamPU")
@@ -915,6 +1009,15 @@ def main(argv=None) -> int:
 
     if args.command == "doctor":
         return run_doctor(repository_root)
+
+    if args.command == "synth" and args.synth_command == "status":
+        try:
+            lines, all_verified = synth_status(args.project_dir)
+        except (OSError, ValueError) as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+        print("\n".join(lines))
+        return 0 if all_verified else 1
 
     if args.command == "synth":
         try:

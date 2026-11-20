@@ -39,6 +39,13 @@ Measure cycles: with F frames per execution (sequence.set_n_frames(F) for a whol
 adapter streams the F frames back to back; print the latency and the interval between frames
 after the run:
     {{ instance_name }}.print_cycle_stats(std::cout);
+
+Record the check for synthesis: store the cycles of each operating condition, then mark the RTL as
+verified when the test passes (writes synth/verified/{{ class_name }}.yml, to commit):
+    {{ instance_name }}.record_cycle_point("Eb/N0 = 6.0 dB");
+    {{ instance_name }}.reset_cycle_stats();
+    if (test_passed)
+        {{ instance_name }}.mark_verified("my_test");
 {%- if passthrough %}
 
     The generated SystemVerilog is a Ready/Valid passthrough example; edit it to implement your hardware behavior.

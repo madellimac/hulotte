@@ -2,7 +2,7 @@
 
 État : **validée dans ses grandes lignes par Camille** (2026-11-19), puis mise à jour après un premier essai réel
 d'Odatix 4.0.0 avec Vivado 2023.1 sur d7010‑cl (2026-11-19, voir « Essai réel »). **Phase 1 implémentée**
-(`synth add`, 2026-11-19) ; phases 1 bis, 1 ter et 2 à faire.
+(`synth add`, 2026-11-19) et **phase 1 bis implémentée** (`mark_verified`, `synth status`, 2026-11-20) ; phases 1 ter et 2 à faire.
 
 ## Décisions
 
@@ -14,6 +14,9 @@ d'Odatix 4.0.0 avec Vivado 2023.1 sur d7010‑cl (2026-11-19, voir « Essai rée
 - [x] D6. `synth run --synth-only` arrête Odatix après la synthèse (`--until synthesis`), sans placement-routage (Camille, 2026-11-19).
 - [x] D7. Le rapport affiche une Fmax estimée depuis une synthèse à fréquence fixe, marquée « estimée », quand `fmax` n'a pas été lancé (Camille, 2026-11-19).
 - [x] D8. Version minimale d'Odatix : 4.0.0 (Camille, 2026-11-19).
+- [x] D9. Les cycles sont enregistrés **par point de fonctionnement** (un Eb/N0, par exemple) : avec un critère d'arrêt, le nombre de cycles dépend du SNR. Le rapport affiche tous les points (Camille, 2026-11-20).
+- [x] D10. L'empreinte couvre **tous les `.sv` de `src/hw/`**, sous‑dossiers compris, sauf `src/hw/synth/` : modifier un fichier invalide la vérification de tous les blocs (Camille, 2026-11-20).
+- [x] D11. Une commande `hulotte update` régénérera les fichiers générés d'un projet existant (CMake, adaptateurs) ; spec à écrire (Camille, 2026-11-20).
 
 ## Objectif
 
@@ -121,39 +124,75 @@ Ce fichier ne sert qu'à la synthèse. Il est dans un sous‑dossier, `src/hw/sy
 
 L'enveloppe enregistre aussi `in_ready` et `out_ready` : c'est un banc de mesure, pas une enveloppe fonctionnelle du flux.
 
-## Phase 1 bis : témoin de vérification (D4)
+## Phase 1 bis : témoin de vérification (D4, D9, D10)
 
-### Écriture par le test
+### Empreinte du RTL, calculée par CMake
 
-- **CMake** (template du projet) : une règle génère, pour chaque bloc, un en‑tête `<Bloc>_rtl_hash.hpp` contenant l'empreinte SHA‑256 de `src/hw/<Bloc>.sv` (`cmake -E sha256sum`). La règle dépend du `.sv` : l'empreinte est donc toujours celle du RTL **compilé dans le simulateur**. CMake passe aussi au code le chemin du projet (`HULOTTE_PROJECT_DIR`).
-- **Adaptateur Verilator** (template) : nouvelle méthode
-  ```cpp
-  void mark_verified(const std::string& test_name) const;
-  ```
-  qui écrit `synth/verified/<Bloc>.yml` :
-  ```yaml
-  module: Hamming_decoder_hw
-  rtl: src/hw/Hamming_decoder_hw.sv
-  rtl_sha256: 3f5a...
-  parameters: { IN_WIDTH: 6, IN_LANES: 7, OUT_WIDTH: 1, OUT_LANES: 4 }
-  test: check_hw
-  date: 2026-11-19T15:42:00
-  cycles: { latency_min: 17, latency_max: 17, interval_min: 18, interval_max: 18 }
-  ```
-- **Le test** (code de l'utilisateur) l'appelle seulement quand il passe :
-  ```cpp
-  if (total_differences == 0)
-      decoder_hw.mark_verified("check_hw");
-  ```
+Le template du projet calcule, **à la configuration**, l'empreinte de tous les `.sv` de `src/hw/` (sous‑dossiers
+compris) sauf `src/hw/synth/` :
 
-Les cycles sont écrits dans le même fichier : la phase 2 n'a pas besoin d'une méthode à part.
+- liste triée par chemin ; un manifeste d'une ligne `<sha256>  <chemin>` par fichier ;
+- empreinte du RTL = SHA‑256 du manifeste ; `hulotte synth status` fait le même calcul en Python ;
+- chaque fichier est ajouté à `CMAKE_CONFIGURE_DEPENDS` : toute modification relance la configuration au
+  build suivant, donc l'empreinte compilée est toujours celle du RTL simulé ;
+- le résultat va dans `build/hulotte/hulotte_rtl_hash.hpp` (un seul en‑tête par projet, puisque l'empreinte
+  couvre tout `src/hw`) : `HULOTTE_PROJECT_DIR`, `HULOTTE_RTL_SHA256`, `HULOTTE_RTL_MANIFEST`.
 
-### Contrôle
+La spec prévoyait `cmake -E sha256sum` à la compilation ; le calcul à la configuration donne le même résultat
+avec moins de mécanique. L'adaptateur inclut l'en‑tête par `__has_include` : dans un projet généré par un
+ancien hulotte, `mark_verified` s'arrête avec un message explicite (voir D11).
 
-- `hulotte synth status <projet>` recalcule l'empreinte de chaque `src/hw/<Bloc>.sv` et la compare au fichier témoin : **vérifié**, **modifié depuis la vérification** ou **jamais vérifié**. Il compare aussi les paramètres à `verified.txt`.
-- `hulotte synth run` fait le même contrôle et refuse de lancer Odatix si le bloc n'est pas vérifié, sauf avec `--force` (le rapport signale alors « non vérifié »).
+### Adaptateur Verilator
 
-Le témoin est déclaratif : il prouve que ce RTL, avec ces paramètres, a passé le test qui a appelé `mark_verified`, rien de plus.
+```cpp
+void record_cycle_point(const std::string& condition);  // cycles courants, sous une condition libre
+void mark_verified(const std::string& test_name) const;   // écrit synth/verified/<Bloc>.yml
+```
+
+- `record_cycle_point` mémorise les statistiques courantes ; `reset_cycle_stats()` ne les efface pas. La
+  condition est un texte libre écrit par le test (« Eb/N0 = 6.0 dB ») : hulotte ne sait pas ce qu'est un Eb/N0.
+- `mark_verified` écrit tous les points enregistrés, ou les statistiques courantes (condition « all frames »)
+  si aucun ne l'a été. Il crée `synth/verified/` s'il manque.
+
+Format du fichier témoin (YAML dont les valeurs sont écrites en JSON, pour être relu sans dépendance) :
+
+```yaml
+module: "Hamming_decoder_hw"
+test: "check_hw"
+date: "2026-11-20T10:42:00"
+rtl_sha256: "3f5a..."
+rtl_files:
+  "src/hw/Hamming_decoder_hw.sv": "9c1e..."
+parameters: {"IN_WIDTH": 6, "IN_LANES": 7, "OUT_WIDTH": 1, "OUT_LANES": 4}
+cycles:
+  - {"condition": "Eb/N0 = 0.0 dB", "frames": 10, "latency_min": 17, "latency_mean": 17, "latency_max": 17, "interval_min": 18, "interval_mean": 18, "interval_max": 18}
+```
+
+Le test l'appelle seulement quand il passe :
+
+```cpp
+decoder_hw.record_cycle_point("Eb/N0 = 6.0 dB");   // dans la boucle, avant reset_cycle_stats()
+if (total_differences == 0)
+    decoder_hw.mark_verified("check_hw");
+```
+
+### Contrôle : `hulotte synth status <projet>`
+
+Une ligne par bloc de `src/hw/*.sv` ou par fichier témoin :
+
+```
+Hamming_decoder_hw  verified        check_hw, 2026-11-20T10:42:00; Eb/N0 = 0.0 dB: latency 17-17, interval 18-18; ...
+Other_hw            MODIFIED        check_hw, 2026-11-18T09:00:00; changed since the check: src/hw/Other_hw.sv
+Third_hw            never verified
+```
+
+`MODIFIED` signale les fichiers changés (grâce à `rtl_files`), un bloc disparu, ou des paramètres de
+`verified.txt` différents de ceux du témoin. Code de sortie 1 si un bloc n'est pas vérifié. `synth run`
+réutilisera `synth_status` et refusera de lancer Odatix sauf avec `--force` (le rapport signalera alors
+« non vérifié »).
+
+Le témoin est déclaratif : il prouve que ce RTL, avec ces paramètres, a passé le test qui a appelé
+`mark_verified`, rien de plus.
 
 ## Phase 1 ter : lancer Odatix (`synth run`, D1)
 
@@ -183,8 +222,10 @@ hulotte synth run <projet> --name Hamming_decoder_hw \
 
 - `hulotte synth report <projet>` lit les fichiers témoins (cycles) et les résultats d'Odatix, puis affiche par bloc et par cible :
 
-  | Bloc | Cible | Vérifié | Fmax (MHz) | LUT | Reg | Latence (cycles / ns) | Intervalle | Débit (Mmots/s) |
-  |---|---|---|---|---|---|---|---|---|
+  | Bloc | Cible | Vérifié | Fmax (MHz) | LUT | Reg | Condition | Latence (cycles / ns) | Intervalle | Débit (Mmots/s) |
+  |---|---|---|---|---|---|---|---|---|---|
+
+  avec une ligne par point de cycles enregistré (D9), et les moyennes à côté de min et max.
 
   avec débit = Fmax ÷ intervalle, et latence en ns = cycles ÷ Fmax.
 - Le même rapport en YAML (`synth/report.yml`), pour le classement du concours.
@@ -219,8 +260,8 @@ hulotte synth run <projet> --name Hamming_decoder_hw \
 
 - `hulotte.py` : sous‑commande `synth` avec `add`, `status`, `run` et `report` ; contrôle d'Odatix dans `doctor`.
 - `templates/synth/` : `_settings.yml.j2`, `verified.txt.j2`, `target_vivado.yml.j2`, `synth_settings.yml.j2`, `fmax_settings.yml.j2`, `odatix.yml.j2`, `synth_top.sv.j2`, `preview.txt.j2`.
-- `templates/verilator/` : méthode `mark_verified` de l'adaptateur.
-- `templates/project/CMakeLists.txt.j2` : génération de `<Bloc>_rtl_hash.hpp` et définition de `HULOTTE_PROJECT_DIR` (phase 1 bis). L'enveloppe n'a pas besoin d'y être exclue (`src/hw/synth/`).
+- `templates/verilator/` : méthodes `record_cycle_point` et `mark_verified` de l'adaptateur (fait).
+- `templates/project/CMakeLists.txt.j2` : génération de `hulotte_rtl_hash.hpp` (fait). L'enveloppe n'a pas besoin d'y être exclue (`src/hw/synth/`).
 - `requirements.txt` : Odatix en dépendance optionnelle, version minimale.
 - `tests/` :
   - génération des fichiers, valeurs lues dans l'adaptateur, unicité des délimiteurs ;
@@ -230,7 +271,7 @@ hulotte synth run <projet> --name Hamming_decoder_hw \
   - `report` sur ces résultats factices ;
   - **aucun test ne lance Odatix ni une synthèse**.
 - `README.md` (section « Synthesis with Odatix ») et `CHANGELOG.md`.
-- `istc_challenge_2027` : `hulotte synth add` sur `Hamming_decoder_hw`, appel de `mark_verified` dans `check_hw`. `synth/` (y compris `verified/`) est commité, `work/` et `results/` sont ignorés.
+- `istc_challenge_2027` : `hulotte update` (D11), puis `hulotte synth add` sur `Hamming_decoder_hw`, `record_cycle_point` par Eb/N0 et `mark_verified` dans `check_hw`. `synth/` (y compris `verified/`) est commité, `work/` et `results/` sont ignorés.
 
 ## Hors périmètre
 
